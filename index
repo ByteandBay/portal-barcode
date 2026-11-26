@@ -1,0 +1,1414 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Portal Barcode (Portal D) - Vapeboss Warehouse</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #f8fafc;
+      color: #0f172a;
+      -webkit-font-smoothing: antialiased;
+    }
+    [v-cloak] { display: none; }
+    .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scroll::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 99px; }
+    .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 99px; }
+    .custom-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    .toast-enter-active, .toast-leave-active { transition: all 0.25s ease; }
+    .toast-enter-from, .toast-leave-to { opacity: 0; transform: translateY(-10px); }
+    .label-strip-canvas {
+      background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+      background-size: 12px 12px;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+  <div id="app" v-cloak class="flex-1 flex flex-col">
+
+    <!-- Toast Notification -->
+    <transition name="toast">
+      <div v-if="toast.show" class="fixed top-4 right-4 z-[90] max-w-sm w-full px-4 py-3 rounded-xl shadow-lg border flex items-center gap-3 text-xs font-bold"
+        :class="{
+          'bg-emerald-600 text-white border-emerald-700': toast.type === 'success',
+          'bg-rose-600 text-white border-rose-700': toast.type === 'error',
+          'bg-amber-500 text-white border-amber-600': toast.type === 'warning',
+          'bg-slate-900 text-white border-slate-800': toast.type === 'info'
+        }">
+        <span class="flex-1 leading-snug">{{ toast.message }}</span>
+        <button @click="toast.show = false" class="opacity-80 hover:opacity-100 text-xs font-extrabold">X</button>
+      </div>
+    </transition>
+
+    <!-- Header -->
+    <header class="sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-slate-200">
+      <div class="max-w-7xl mx-auto px-3 sm:px-5 py-2.5 flex flex-wrap items-center justify-between gap-2.5">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-sm tracking-tight shadow-sm">
+            D
+          </div>
+          <div>
+            <h1 class="text-sm sm:text-base font-extrabold text-slate-900 leading-tight">Portal Barcode</h1>
+            <p class="text-[11px] font-semibold text-slate-500">Zebra ZD220 • 3 Kolom ({{ settings.paperWidthMm }}x{{ settings.paperHeightMm }} mm)</p>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- Printer Connection Pill -->
+          <div class="flex items-center gap-1.5 bg-slate-100 border border-slate-200 rounded-xl px-2.5 py-1.5">
+            <span class="w-2 h-2 rounded-full" :class="printerStatus === 'connected' ? 'bg-emerald-500' : (printerStatus === 'checking' ? 'bg-amber-400 animate-pulse' : 'bg-rose-500')"></span>
+            <select v-if="printers.length > 0" v-model="selectedPrinterUid" class="bg-transparent text-xs font-bold text-slate-800 outline-none max-w-[140px] truncate cursor-pointer">
+              <option v-for="p in printers" :key="p.uid" :value="p.uid">{{ p.name }}</option>
+            </select>
+            <span v-else class="text-xs font-bold text-slate-600">
+              {{ printerStatus === 'checking' ? 'Mencari Printer...' : 'Printer Offline' }}
+            </span>
+            <button @click="detectPrinters(true)" title="Deteksi Ulang Printer Zebra" class="ml-1 text-[11px] font-bold text-blue-600 hover:text-blue-800">
+              Cek
+            </button>
+          </div>
+
+          <!-- Auto-Print Switch -->
+          <button @click="toggleAutoPrint" type="button"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all"
+            :class="autoPrintEnabled ? 'bg-emerald-50 border-emerald-300 text-emerald-800' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'">
+            <span>Auto-Print</span>
+            <span class="relative inline-flex h-4 w-7 items-center rounded-full transition-colors" :class="autoPrintEnabled ? 'bg-emerald-600' : 'bg-slate-300'">
+              <span class="inline-block h-3 w-3 transform rounded-full bg-white transition-transform" :class="autoPrintEnabled ? 'translate-x-3.5' : 'translate-x-0.5'"></span>
+            </span>
+          </button>
+
+          <!-- Toggle Layar 2 (Setting Barcode) -->
+          <button @click="showSettings = !showSettings" type="button"
+            class="px-3 py-1.5 rounded-xl border text-xs font-bold transition-all"
+            :class="showSettings ? 'bg-blue-600 border-blue-700 text-white shadow-sm' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'">
+            {{ showSettings ? 'Tutup Setting' : 'Setting Barcode' }}
+          </button>
+
+          <!-- Menu Portal -->
+          <button @click="portalMenuOpen = true" type="button"
+            class="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all">
+            Menu Portal
+          </button>
+        </div>
+      </div>
+
+      <!-- Active Print Queue Banner -->
+      <div v-if="isPrinting || localPrintQueue.length > 0" class="bg-blue-600 text-white text-xs font-bold px-4 py-1.5 flex items-center justify-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-white animate-ping"></span>
+        <span>Sedang mencetak: {{ currentPrintLabel }} (Sisa antrean printer: {{ localPrintQueue.length }})</span>
+      </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="max-w-7xl w-full mx-auto px-3 sm:px-5 py-4 space-y-4 flex-1">
+
+      <!-- LAYAR 2: SETTING BARCODE + PREVIEW (Hideable) -->
+      <section v-if="showSettings" class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-4 py-3 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 class="text-sm font-extrabold">Setting Barcode &amp; Preview (Layar 2)</h2>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <button @click="testPrintOneRow" :disabled="isPrinting" class="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold disabled:opacity-50">
+              Test Print 1 Baris
+            </button>
+            <button @click="resetDefaultSettings" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-600">
+              Reset Factory
+            </button>
+            <button @click="saveCentralSettings" :disabled="isSavingSettings" class="px-3.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-extrabold shadow-sm disabled:opacity-50">
+              {{ isSavingSettings ? 'Menyimpan...' : 'Simpan Default' }}
+            </button>
+          </div>
+        </div>
+
+        <div class="p-4 grid grid-cols-1 lg:grid-cols-12 gap-5">
+          <!-- Settings Form (7 cols) -->
+          <div class="lg:col-span-7 space-y-4 max-h-[540px] overflow-y-auto custom-scroll pr-1">
+            <!-- Group 1: Kertas & Printer -->
+            <div class="border border-slate-200 rounded-xl p-3 bg-slate-50/70">
+              <h3 class="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 mb-2.5">Kertas &amp; Printer</h3>
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <label class="block">
+                  <span class="text-[11px] font-bold text-slate-600">Lebar Label (mm)</span>
+                  <input type="number" step="0.5" v-model.number="settings.paperWidthMm" class="mt-1 w-full px-2.5 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg focus:border-blue-500 outline-none">
+                </label>
+                <label class="block">
+                  <span class="text-[11px] font-bold text-slate-600">Tinggi Label (mm)</span>
+                  <input type="number" step="0.5" v-model.number="settings.paperHeightMm" class="mt-1 w-full px-2.5 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg focus:border-blue-500 outline-none">
+                </label>
+                <label class="block">
+                  <span class="text-[11px] font-bold text-slate-600">Kolom</span>
+                  <input type="number" min="1" max="3" v-model.number="settings.columns" class="mt-1 w-full px-2.5 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg focus:border-blue-500 outline-none">
+                </label>
+                <label class="block">
+                  <span class="text-[11px] font-bold text-slate-600">DPI</span>
+                  <input type="number" v-model.number="settings.dpi" class="mt-1 w-full px-2.5 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg focus:border-blue-500 outline-none">
+                </label>
+                <label class="block">
+                  <span class="text-[11px] font-bold text-slate-600">Darkness (0-30)</span>
+                  <input type="number" min="0" max="30" v-model.number="settings.darkness" class="mt-1 w-full px-2.5 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg focus:border-blue-500 outline-none">
+                </label>
+                <label class="block">
+                  <span class="text-[11px] font-bold text-slate-600">Speed (1-6)</span>
+                  <input type="number" min="1" max="6" v-model.number="settings.speed" class="mt-1 w-full px-2.5 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg focus:border-blue-500 outline-none">
+                </label>
+                <label class="block col-span-2">
+                  <span class="text-[11px] font-bold text-slate-600">Nama Printer</span>
+                  <input type="text" v-model.trim="settings.sharePrinterName" class="mt-1 w-full px-2.5 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg focus:border-blue-500 outline-none">
+                </label>
+              </div>
+            </div>
+
+            <!-- Group 2: Posisi Kolom & QR -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div class="border border-slate-200 rounded-xl p-3 bg-slate-50/70">
+                <h3 class="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 mb-2.5">Offset X Kolom (Dots)</h3>
+                <div class="grid grid-cols-3 gap-2">
+                  <label class="block">
+                    <span class="text-[11px] font-bold text-slate-600">Kolom 1</span>
+                    <input type="number" v-model.number="settings.xCol1" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                  </label>
+                  <label class="block">
+                    <span class="text-[11px] font-bold text-slate-600">Kolom 2</span>
+                    <input type="number" v-model.number="settings.xCol2" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                  </label>
+                  <label class="block">
+                    <span class="text-[11px] font-bold text-slate-600">Kolom 3</span>
+                    <input type="number" v-model.number="settings.xCol3" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                  </label>
+                </div>
+              </div>
+
+              <div class="border border-slate-200 rounded-xl p-3 bg-slate-50/70">
+                <h3 class="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 mb-2.5">QR Code</h3>
+                <div class="grid grid-cols-3 gap-2">
+                  <label class="block">
+                    <span class="text-[11px] font-bold text-slate-600">X</span>
+                    <input type="number" v-model.number="settings.xQr" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                  </label>
+                  <label class="block">
+                    <span class="text-[11px] font-bold text-slate-600">Y</span>
+                    <input type="number" v-model.number="settings.yQr" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                  </label>
+                  <label class="block">
+                    <span class="text-[11px] font-bold text-slate-600">Magnifikasi</span>
+                    <input type="number" min="1" max="10" v-model.number="settings.magQr" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Group 3: SKU & MG/Ohm -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div class="border border-slate-200 rounded-xl p-3 bg-slate-50/70">
+                <h3 class="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 mb-2.5">Kode Barang (SKU)</h3>
+                <div class="grid grid-cols-4 gap-2">
+                  <label class="block">
+                    <span class="text-[11px] font-bold text-slate-600">X</span>
+                    <input type="number" v-model.number="settings.xSku" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                  </label>
+                  <label class="block">
+                    <span class="text-[11px] font-bold text-slate-600">Y</span>
+                    <input type="number" v-model.number="settings.ySku" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                  </label>
+                  <label class="block">
+                    <span class="text-[11px] font-bold text-slate-600">Tinggi</span>
+                    <input type="number" v-model.number="settings.fontHeightSku" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                  </label>
+                  <label class="block">
+                    <span class="text-[11px] font-bold text-slate-600">Lebar</span>
+                    <input type="number" v-model.number="settings.fontWidthSku" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                  </label>
+                </div>
+              </div>
+
+              <div class="border border-slate-200 rounded-xl p-3 bg-slate-50/70">
+                <h3 class="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 mb-2.5">MG / Tahun / Ohm</h3>
+                <div class="grid grid-cols-4 gap-2">
+                  <label class="block">
+                    <span class="text-[11px] font-bold text-slate-600">X</span>
+                    <input type="number" v-model.number="settings.xMg" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                  </label>
+                  <label class="block">
+                    <span class="text-[11px] font-bold text-slate-600">Y</span>
+                    <input type="number" v-model.number="settings.yMg" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                  </label>
+                  <label class="block">
+                    <span class="text-[11px] font-bold text-slate-600">Tinggi</span>
+                    <input type="number" v-model.number="settings.fontHeightMg" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                  </label>
+                  <label class="block">
+                    <span class="text-[11px] font-bold text-slate-600">Lebar</span>
+                    <input type="number" v-model.number="settings.fontWidthMg" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Group 4: Nama Barang -->
+            <div class="border border-slate-200 rounded-xl p-3 bg-slate-50/70">
+              <h3 class="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 mb-2.5">Nama Barang (Bottom-Aligned)</h3>
+              <div class="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                <label class="block">
+                  <span class="text-[11px] font-bold text-slate-600">X</span>
+                  <input type="number" v-model.number="settings.xName" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                </label>
+                <label class="block">
+                  <span class="text-[11px] font-bold text-slate-600">Y Lantai</span>
+                  <input type="number" v-model.number="settings.yNameFloor" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                </label>
+                <label class="block">
+                  <span class="text-[11px] font-bold text-slate-600">Lebar Blok</span>
+                  <input type="number" v-model.number="settings.nameBlockWidth" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                </label>
+                <label class="block">
+                  <span class="text-[11px] font-bold text-slate-600">Maks Baris</span>
+                  <input type="number" min="1" max="8" v-model.number="settings.maxNameLines" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                </label>
+                <label class="block">
+                  <span class="text-[11px] font-bold text-slate-600">Spasi Visual</span>
+                  <input type="number" v-model.number="settings.visualLineSpacing" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                </label>
+                <label class="block">
+                  <span class="text-[11px] font-bold text-slate-600">Step Y/Baris</span>
+                  <input type="number" v-model.number="settings.lineStepY" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                </label>
+                <label class="block">
+                  <span class="text-[11px] font-bold text-slate-600">Tinggi Font</span>
+                  <input type="number" v-model.number="settings.fontHeightName" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                </label>
+                <label class="block">
+                  <span class="text-[11px] font-bold text-slate-600">Lebar Font</span>
+                  <input type="number" v-model.number="settings.fontWidthName" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                </label>
+                <label class="block">
+                  <span class="text-[11px] font-bold text-slate-600">Huruf/Baris</span>
+                  <input type="number" min="5" max="40" v-model.number="settings.estCharsPerLine" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                </label>
+              </div>
+            </div>
+
+            <!-- Group 5: Separator -->
+            <div class="border border-slate-200 rounded-xl p-3 bg-slate-50/70">
+              <div class="flex items-center justify-between mb-2.5">
+                <h3 class="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">Separator Antar SKU</h3>
+                <label class="inline-flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" v-model="settings.enableSeparator" class="rounded border-slate-300 text-blue-600">
+                  <span class="text-xs font-bold text-slate-700">Aktif</span>
+                </label>
+              </div>
+              <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                <label class="block">
+                  <span class="text-[11px] font-bold text-slate-600">Teks</span>
+                  <input type="text" v-model="settings.sepText" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                </label>
+                <label class="block">
+                  <span class="text-[11px] font-bold text-slate-600">X</span>
+                  <input type="number" v-model.number="settings.xSep" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                </label>
+                <label class="block">
+                  <span class="text-[11px] font-bold text-slate-600">Y</span>
+                  <input type="number" v-model.number="settings.ySep" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                </label>
+                <label class="block">
+                  <span class="text-[11px] font-bold text-slate-600">Tinggi</span>
+                  <input type="number" v-model.number="settings.fontHeightSep" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                </label>
+                <label class="block">
+                  <span class="text-[11px] font-bold text-slate-600">Lebar</span>
+                  <input type="number" v-model.number="settings.fontWidthSep" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Live Preview Panel (5 cols) -->
+          <div class="lg:col-span-5 flex flex-col gap-3">
+            <div class="border border-slate-200 rounded-xl p-3.5 bg-slate-50 flex-1 flex flex-col justify-between">
+              <div>
+                <div class="flex items-center justify-between mb-2.5">
+                  <h3 class="text-xs font-extrabold text-slate-800">Preview Visual 3 Kolom</h3>
+                  <span class="text-[11px] font-bold text-slate-500">{{ previewStripWidthDots }}x{{ previewLabelHeightDots }} dots</span>
+                </div>
+
+                <!-- Sample Data Inputs -->
+                <div class="grid grid-cols-12 gap-2 mb-3">
+                  <input type="text" v-model="previewSample.kode" placeholder="Kode Sample" class="col-span-4 px-2.5 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                  <input type="text" v-model="previewSample.nama" placeholder="Nama Barang Sample" class="col-span-8 px-2.5 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                </div>
+
+                <!-- Visual Strip -->
+                <div class="label-strip-canvas rounded-xl border border-slate-300 p-4 overflow-x-auto flex items-center justify-center min-h-[170px]">
+                  <div class="relative bg-slate-200/80 border border-dashed border-slate-400 rounded" :style="previewStripStyle">
+                    <div v-for="(slot, sIdx) in previewSlots" :key="sIdx"
+                      class="absolute top-0 bg-white border border-slate-400 rounded-sm shadow-xs overflow-hidden"
+                      :style="getSlotBoxStyle(sIdx)">
+                      <template v-if="slot.type === 'SEP'">
+                        <div class="absolute font-mono font-black text-slate-900 whitespace-nowrap leading-none" :style="getSepStyle()">
+                          {{ settings.sepText }}
+                        </div>
+                      </template>
+                      <template v-else>
+                        <!-- QR Box -->
+                        <div class="absolute bg-slate-900/90 flex items-center justify-center text-[7px] font-mono text-white font-bold" :style="getQrStyle()">
+                          QR
+                        </div>
+                        <!-- SKU -->
+                        <div class="absolute font-mono font-bold text-slate-900 whitespace-nowrap leading-none" :style="getSkuStyle()">
+                          {{ slot.kode }}
+                        </div>
+                        <!-- MG / Ohm -->
+                        <div v-if="slot.topRight" class="absolute font-mono font-extrabold text-slate-900 whitespace-nowrap leading-none" :style="getMgStyle()">
+                          {{ slot.topRight }}
+                        </div>
+                        <!-- Nama Barang -->
+                        <div class="absolute font-sans font-bold text-slate-900 break-words leading-tight overflow-hidden" :style="getNameStyle(slot.nama)">
+                          {{ slot.nama }}
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Preview Metadata -->
+              <div class="mt-3 pt-3 border-t border-slate-200 grid grid-cols-2 gap-2 text-[11px]">
+                <div class="bg-white rounded-lg p-2 border border-slate-200">
+                  <span class="text-slate-500 font-semibold block">Ekstrak MG/Ohm</span>
+                  <span class="font-extrabold text-slate-900">{{ extractTopRight(previewSample.nama) || '-' }}</span>
+                </div>
+                <div class="bg-white rounded-lg p-2 border border-slate-200">
+                  <span class="text-slate-500 font-semibold block">Y Dinamis Nama</span>
+                  <span class="font-extrabold text-slate-900">{{ calcDynamicNameY(previewSample.nama) }} dots</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- LAYAR 1: EKSEKUSI (Manual Paste + Antrean Checker FIFO) -->
+      <section class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+
+        <!-- LEFT: Input Massal & Daftar Cetak (7 cols) -->
+        <div class="lg:col-span-7 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+          <div class="px-4 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 bg-slate-50/70">
+            <div>
+              <h2 class="text-sm font-extrabold text-slate-900">Daftar Cetak Barcode</h2>
+              <p v-if="linkedJobIds.length > 0" class="text-[11px] font-bold text-blue-600">
+                Terhubung dengan {{ linkedJobIds.length }} antrean Checker
+              </p>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button @click="addEmptyRow" class="px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold">
+                + Baris
+              </button>
+              <button @click="clearManualItems" :disabled="manualItems.length === 0" class="px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 text-slate-600 text-xs font-bold disabled:opacity-40">
+                Bersihkan
+              </button>
+            </div>
+          </div>
+
+          <!-- Paste Area -->
+          <div class="p-3.5 border-b border-slate-200 bg-slate-50/40">
+            <div class="flex gap-2">
+              <textarea v-model="pasteInput" @paste="onPasteExcel" rows="2"
+                placeholder="Paste dari Excel / Sheets: Kode Barang [Tab] Nama Barang [Tab] Qty"
+                class="flex-1 px-3 py-2 text-xs font-medium bg-white border border-slate-300 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none resize-none"></textarea>
+              <button @click="parsePasteInput" :disabled="!pasteInput.trim()"
+                class="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shrink-0 disabled:opacity-40">
+                Muat
+              </button>
+            </div>
+          </div>
+
+          <!-- Editable Table -->
+          <div class="overflow-x-auto max-h-[430px] overflow-y-auto custom-scroll">
+            <table class="w-full text-left border-collapse">
+              <thead class="sticky top-0 bg-slate-100 text-[11px] font-extrabold text-slate-600 uppercase border-b border-slate-200 z-10">
+                <tr>
+                  <th class="py-2 px-3 w-10 text-center">No</th>
+                  <th class="py-2 px-2 w-32">Kode</th>
+                  <th class="py-2 px-2">Nama Barang</th>
+                  <th class="py-2 px-2 w-16 text-center">Info</th>
+                  <th class="py-2 px-2 w-20 text-center">Qty</th>
+                  <th class="py-2 px-2 w-10 text-center"></th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100 text-xs">
+                <tr v-if="manualItems.length === 0">
+                  <td colspan="6" class="py-10 text-center text-slate-400 font-semibold">
+                    Belum ada daftar barang. Paste data dari Excel/Sheets atau tarik dari Antrean Checker.
+                  </td>
+                </tr>
+                <tr v-for="(item, idx) in manualItems" :key="item.uid" class="hover:bg-slate-50/80">
+                  <td class="py-1.5 px-3 text-center font-bold text-slate-400">{{ idx + 1 }}</td>
+                  <td class="py-1.5 px-2">
+                    <input type="text" v-model.trim="item.kode" placeholder="SKU"
+                      class="w-full px-2 py-1 text-xs font-mono font-bold bg-white border border-slate-200 rounded-lg focus:border-blue-500 outline-none">
+                  </td>
+                  <td class="py-1.5 px-2">
+                    <input type="text" v-model="item.nama" placeholder="Nama Barang"
+                      class="w-full px-2 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg focus:border-blue-500 outline-none">
+                  </td>
+                  <td class="py-1.5 px-2 text-center">
+                    <span class="inline-block px-1.5 py-0.5 rounded bg-slate-100 text-[10px] font-extrabold text-slate-700">
+                      {{ extractTopRight(item.nama) || '-' }}
+                    </span>
+                  </td>
+                  <td class="py-1.5 px-2">
+                    <input type="number" min="1" v-model.number="item.qty"
+                      class="w-full px-2 py-1 text-xs font-extrabold text-center bg-white border border-slate-200 rounded-lg focus:border-blue-500 outline-none">
+                  </td>
+                  <td class="py-1.5 px-2 text-center">
+                    <button @click="removeManualItem(idx)" class="text-slate-400 hover:text-rose-600 font-extrabold text-xs px-1.5 py-1">
+                      X
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Action Footer -->
+          <div class="p-3.5 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-4 text-xs">
+              <div>
+                <span class="text-slate-500 font-semibold">SKU:</span>
+                <span class="ml-1 font-extrabold text-slate-900">{{ validManualItems.length }}</span>
+              </div>
+              <div>
+                <span class="text-slate-500 font-semibold">Stiker:</span>
+                <span class="ml-1 font-extrabold text-blue-700">{{ totalManualStickers }}</span>
+              </div>
+              <div>
+                <span class="text-slate-500 font-semibold">Baris:</span>
+                <span class="ml-1 font-extrabold text-slate-900">{{ estimatedRows }}</span>
+              </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+              <button @click="calibrateModalOpen = true" type="button"
+                class="px-3 py-2 rounded-xl bg-white border border-slate-300 hover:bg-amber-50 hover:border-amber-300 hover:text-amber-800 text-slate-700 text-xs font-bold">
+                Kalibrasi
+              </button>
+              <button @click="downloadManualZpl" :disabled="validManualItems.length === 0" type="button"
+                class="px-3 py-2 rounded-xl bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-bold disabled:opacity-40">
+                Download ZPL
+              </button>
+              <button @click="printManualItems" :disabled="validManualItems.length === 0" type="button"
+                class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-extrabold shadow-sm disabled:opacity-40">
+                Cetak Barcode
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT: Antrean Portal Checker FIFO (5 cols) -->
+        <div class="lg:col-span-5 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+          <div class="px-4 py-3 border-b border-slate-200 bg-slate-50/70 flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <h2 class="text-sm font-extrabold text-slate-900">Antrean Checker</h2>
+              <span class="px-2 py-0.5 rounded-full text-[11px] font-extrabold"
+                :class="pendingJobs.length > 0 ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-600'">
+                {{ pendingJobs.length }}
+              </span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button @click="fetchQueueAndConfig(true)" :disabled="isLoadingQueue"
+                class="px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold disabled:opacity-50">
+                {{ isLoadingQueue ? '...' : 'Refresh' }}
+              </button>
+              <button v-if="pendingJobs.length > 0" @click="printAllPendingJobs"
+                class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold">
+                Cetak Semua
+              </button>
+            </div>
+          </div>
+
+          <!-- Tabs -->
+          <div class="px-4 pt-2.5 pb-2 border-b border-slate-100 flex items-center gap-2">
+            <button @click="queueTab = 'MENUNGGU'" class="px-3 py-1 rounded-lg text-xs font-bold transition-colors"
+              :class="queueTab === 'MENUNGGU' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'">
+              Menunggu ({{ pendingJobs.length }})
+            </button>
+            <button @click="queueTab = 'SELESAI'" class="px-3 py-1 rounded-lg text-xs font-bold transition-colors"
+              :class="queueTab === 'SELESAI' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'">
+              Selesai ({{ completedJobs.length }})
+            </button>
+          </div>
+
+          <!-- Job List -->
+          <div class="p-3 space-y-2.5 max-h-[510px] overflow-y-auto custom-scroll">
+            <div v-if="displayedJobs.length === 0" class="py-12 text-center text-xs font-semibold text-slate-400">
+              {{ queueTab === 'MENUNGGU' ? 'Tidak ada antrean cetak dari Portal Checker.' : 'Belum ada riwayat cetak selesai.' }}
+            </div>
+
+            <div v-for="(job, jIdx) in displayedJobs" :key="job.job_id"
+              class="rounded-xl border p-3 transition-all"
+              :class="job.status === 'MENUNGGU' ? 'border-slate-200 bg-white hover:border-blue-300' : 'border-slate-200 bg-slate-50/70 opacity-80'">
+              <div class="flex items-start justify-between gap-2 mb-2">
+                <div>
+                  <div class="flex items-center gap-1.5">
+                    <span v-if="job.status === 'MENUNGGU'" class="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 text-[10px] font-extrabold">#{{ jIdx + 1 }}</span>
+                    <span class="text-xs font-extrabold text-slate-900">{{ job.cabang }}</span>
+                  </div>
+                  <p class="text-[11px] font-semibold text-slate-500 mt-0.5">
+                    {{ job.no_it }} • PIC: {{ job.pic }}
+                  </p>
+                  <p class="text-[10px] font-medium text-slate-400">
+                    {{ job.status === 'SELESAI' && job.printed_at ? ('Dicetak: ' + job.printed_at) : job.timestamp }}
+                  </p>
+                </div>
+                <span class="px-2 py-0.5 rounded-md text-[10px] font-extrabold shrink-0"
+                  :class="job.status === 'MENUNGGU' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'">
+                  {{ job.items.length }} SKU • {{ sumJobStickers(job) }} pcs
+                </span>
+              </div>
+
+              <!-- Job Items -->
+              <div class="bg-slate-50 rounded-lg border border-slate-200/80 divide-y divide-slate-200/60 mb-2.5">
+                <div v-for="(it, idx) in job.items" :key="idx" class="px-2.5 py-1.5 flex items-center justify-between gap-2 text-[11px]">
+                  <div class="min-w-0 flex-1">
+                    <div class="font-mono font-bold text-slate-800 truncate">{{ it.kode }}</div>
+                    <div class="text-slate-600 truncate">{{ it.nama }}</div>
+                  </div>
+                  <div class="shrink-0 flex items-center gap-1">
+                    <input v-if="job.status === 'MENUNGGU'" type="number" min="1" v-model.number="it.qty"
+                      class="w-12 px-1.5 py-0.5 text-center font-extrabold bg-white border border-slate-300 rounded text-[11px] outline-none">
+                    <span v-else class="font-extrabold text-slate-700">{{ it.qty }}</span>
+                    <span class="text-[10px] text-slate-400 font-bold">pcs</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Job Actions -->
+              <div class="flex items-center justify-between gap-2">
+                <button @click="deleteQueueJob(job.job_id)" class="text-[11px] font-bold text-slate-400 hover:text-rose-600">
+                  Hapus
+                </button>
+                <div class="flex items-center gap-1.5">
+                  <button @click="loadJobToManual(job)" class="px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 text-[11px] font-bold">
+                    Tarik
+                  </button>
+                  <button @click="printQueueJob(job)" class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-extrabold">
+                    {{ job.status === 'MENUNGGU' ? 'Cetak' : 'Cetak Ulang' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </section>
+    </main>
+
+    <!-- Calibration Confirm Modal -->
+    <div v-if="calibrateModalOpen" class="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4" @click.self="calibrateModalOpen = false">
+      <div class="bg-white rounded-2xl max-w-sm w-full p-5 shadow-xl border border-slate-200">
+        <h3 class="text-sm font-extrabold text-slate-900">Kalibrasi Sensor Printer</h3>
+        <p class="text-xs text-slate-600 mt-1.5 leading-relaxed">
+          Printer akan mengeluarkan 2-3 baris label kosong untuk membaca ulang celah (gap) kertas. Pastikan kertas sudah terpasang rapi.
+        </p>
+        <div class="mt-4 flex justify-end gap-2">
+          <button @click="calibrateModalOpen = false" class="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold">
+            Batal
+          </button>
+          <button @click="runCalibration" class="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-extrabold">
+            Jalankan Kalibrasi
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom Sheet: Navigasi Antar Portal Vapeboss -->
+    <div v-if="portalMenuOpen" class="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4" @click.self="portalMenuOpen = false">
+      <div class="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl p-5 shadow-2xl border border-slate-200">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-sm font-extrabold text-slate-900">Navigasi Antar Portal Vapeboss</h3>
+          <button @click="portalMenuOpen = false" class="text-xs font-extrabold text-slate-400 hover:text-slate-700 px-2 py-1">X</button>
+        </div>
+        <div class="space-y-2">
+          <a :href="portalLinks.homeUrl" class="flex items-center justify-between p-3 rounded-xl border border-slate-200 hover:border-blue-400 hover:bg-blue-50/40 transition-all">
+            <div>
+              <div class="text-xs font-extrabold text-slate-900">Portal Utama (A)</div>
+              <div class="text-[11px] font-medium text-slate-500">Upload Data &amp; Pembagian Rute</div>
+            </div>
+            <span class="text-xs font-extrabold text-blue-600">Buka</span>
+          </a>
+          <a :href="portalLinks.pickerUrl" class="flex items-center justify-between p-3 rounded-xl border border-slate-200 hover:border-blue-400 hover:bg-blue-50/40 transition-all">
+            <div>
+              <div class="text-xs font-extrabold text-slate-900">Portal Picker (B)</div>
+              <div class="text-[11px] font-medium text-slate-500">Daftar Pengambilan Barang</div>
+            </div>
+            <span class="text-xs font-extrabold text-blue-600">Buka</span>
+          </a>
+          <a :href="portalLinks.checkerUrl" class="flex items-center justify-between p-3 rounded-xl border border-slate-200 hover:border-blue-400 hover:bg-blue-50/40 transition-all">
+            <div>
+              <div class="text-xs font-extrabold text-slate-900">Portal Checker (C)</div>
+              <div class="text-[11px] font-medium text-slate-500">Verifikasi &amp; Scan Barang</div>
+            </div>
+            <span class="text-xs font-extrabold text-blue-600">Buka</span>
+          </a>
+          <div class="flex items-center justify-between p-3 rounded-xl border-2 border-slate-900 bg-slate-50">
+            <div>
+              <div class="text-xs font-extrabold text-slate-900">Portal Barcode (D)</div>
+              <div class="text-[11px] font-medium text-slate-500">Cetak Barcode &amp; Antrean Checker</div>
+            </div>
+            <span class="px-2 py-0.5 rounded bg-slate-900 text-white text-[10px] font-extrabold">Aktif</span>
+          </div>
+        </div>
+        <div class="mt-4 pt-3 border-t border-slate-200 flex justify-between items-center">
+          <button @click="portalMenuOpen = false; linkModalOpen = true" class="text-xs font-bold text-blue-600 hover:underline">
+            Atur Link Antar Portal (A, B, C, D)
+          </button>
+          <button @click="portalMenuOpen = false" class="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold">
+            Tutup
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Pengaturan Link Antar Portal -->
+    <div v-if="linkModalOpen" class="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4" @click.self="linkModalOpen = false">
+      <div class="bg-white rounded-2xl max-w-md w-full p-5 shadow-xl border border-slate-200">
+        <h3 class="text-sm font-extrabold text-slate-900 mb-3">Link Antar Portal (A, B, C, D)</h3>
+        <div class="space-y-2.5 text-xs">
+          <label class="block">
+            <span class="font-bold text-slate-600">Portal Utama (A)</span>
+            <input type="url" v-model.trim="portalLinks.homeUrl" class="mt-1 w-full px-3 py-2 border border-slate-300 rounded-xl outline-none focus:border-blue-500">
+          </label>
+          <label class="block">
+            <span class="font-bold text-slate-600">Portal Picker (B)</span>
+            <input type="url" v-model.trim="portalLinks.pickerUrl" class="mt-1 w-full px-3 py-2 border border-slate-300 rounded-xl outline-none focus:border-blue-500">
+          </label>
+          <label class="block">
+            <span class="font-bold text-slate-600">Portal Checker (C)</span>
+            <input type="url" v-model.trim="portalLinks.checkerUrl" class="mt-1 w-full px-3 py-2 border border-slate-300 rounded-xl outline-none focus:border-blue-500">
+          </label>
+          <label class="block">
+            <span class="font-bold text-slate-600">Portal Barcode (D)</span>
+            <input type="url" v-model.trim="portalLinks.barcodeUrl" class="mt-1 w-full px-3 py-2 border border-slate-300 rounded-xl outline-none focus:border-blue-500">
+          </label>
+        </div>
+        <div class="mt-4 flex justify-end gap-2">
+          <button @click="linkModalOpen = false" class="px-3.5 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold">Batal</button>
+          <button @click="savePortalLinks" class="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-extrabold">Simpan</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const { createApp } = Vue;
+
+    const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbw-Hlly2gks4HjfRIdD0xL3l7Uhc7I-R2dRaGWYgFMY7qkhRWOYLcSQuEuqHCMLnnsL/exec';
+    const PORTAL_LINKS_KEY = 'vapeboss_portal_links_v2';
+    const BARCODE_SETTINGS_LOCAL_KEY = 'vapeboss_barcode_settings_v1';
+
+    function getFactorySettings() {
+      return {
+        paperWidthMm: 32.5,
+        paperHeightMm: 14.5,
+        columns: 3,
+        dpi: 203,
+        darkness: 25,
+        speed: 1,
+        xCol1: 10,
+        xCol2: 300,
+        xCol3: 585,
+        xQr: 0,
+        yQr: 25,
+        magQr: 3,
+        xSku: 70,
+        ySku: 15,
+        fontHeightSku: 15,
+        fontWidthSku: 11,
+        xMg: 205,
+        yMg: 15,
+        fontHeightMg: 16,
+        fontWidthMg: 14,
+        xName: 70,
+        yNameFloor: 105,
+        nameBlockWidth: 160,
+        maxNameLines: 5,
+        visualLineSpacing: 2,
+        lineStepY: 18,
+        fontHeightName: 20,
+        fontWidthName: 12,
+        estCharsPerLine: 13,
+        enableSeparator: true,
+        sepText: '<<<>>>',
+        xSep: 30,
+        ySep: 35,
+        fontHeightSep: 60,
+        fontWidthSep: 35,
+        sharePrinterName: 'Zebra',
+        updatedAt: 0
+      };
+    }
+
+    createApp({
+      data() {
+        return {
+          gasUrl: DEFAULT_GAS_URL,
+          portalMenuOpen: false,
+          linkModalOpen: false,
+          calibrateModalOpen: false,
+          showSettings: false,
+          portalLinks: {
+            homeUrl: 'https://byteandbay.github.io/portal-utama/',
+            pickerUrl: 'https://byteandbay.github.io/picker-webapp/',
+            checkerUrl: 'https://byteandbay.github.io/portal-checker/',
+            barcodeUrl: 'https://byteandbay.github.io/portal-barcode/'
+          },
+          settings: getFactorySettings(),
+          isSavingSettings: false,
+          previewSample: {
+            kode: 'LQD-00123',
+            nama: 'FOOM ICY WATERMELON 30ML 30MG CUKAI 2026'
+          },
+          pasteInput: '',
+          manualItems: [],
+          linkedJobIds: [],
+          uidCounter: 1,
+
+          // Antrean Checker FIFO
+          queueJobs: [],
+          queueTab: 'MENUNGGU',
+          isLoadingQueue: false,
+          autoPrintEnabled: false,
+          pollTimer: null,
+          queuedAutoJobIds: new Set(),
+
+          // Printer & Sequential FIFO Dispatcher
+          printerStatus: 'checking',
+          printerBaseUrl: 'https://localhost:9101',
+          printers: [],
+          selectedPrinterUid: '',
+          localPrintQueue: [],
+          isPrinting: false,
+          currentPrintLabel: '',
+
+          toast: { show: false, message: '', type: 'info', timer: null }
+        };
+      },
+      computed: {
+        validManualItems() {
+          return this.manualItems.filter(it => String(it.kode || '').trim() !== '' && (parseInt(it.qty, 10) || 0) > 0);
+        },
+        totalManualStickers() {
+          return this.validManualItems.reduce((sum, it) => sum + (parseInt(it.qty, 10) || 0), 0);
+        },
+        estimatedRows() {
+          const cols = Math.max(1, parseInt(this.settings.columns, 10) || 3);
+          const sepCount = (this.settings.enableSeparator && this.validManualItems.length > 0) ? this.validManualItems.length : 0;
+          return Math.ceil((this.totalManualStickers + sepCount) / cols);
+        },
+        pendingJobs() {
+          return this.queueJobs.filter(j => j.status === 'MENUNGGU');
+        },
+        completedJobs() {
+          return this.queueJobs.filter(j => j.status !== 'MENUNGGU');
+        },
+        displayedJobs() {
+          return this.queueTab === 'MENUNGGU' ? this.pendingJobs : this.completedJobs;
+        },
+        selectedPrinterObj() {
+          return this.printers.find(p => p.uid === this.selectedPrinterUid) || this.printers[0] || null;
+        },
+        dotsPerMm() {
+          return (Number(this.settings.dpi) || 203) / 25.4;
+        },
+        previewLabelWidthDots() {
+          return Math.round((Number(this.settings.paperWidthMm) || 32.5) * this.dotsPerMm);
+        },
+        previewLabelHeightDots() {
+          return Math.round((Number(this.settings.paperHeightMm) || 14.5) * this.dotsPerMm);
+        },
+        previewStripWidthDots() {
+          const cols = Math.max(1, Math.min(3, parseInt(this.settings.columns, 10) || 3));
+          const offsets = [this.settings.xCol1, this.settings.xCol2, this.settings.xCol3];
+          const lastX = Number(offsets[cols - 1]) || 0;
+          return Math.max(lastX + this.previewLabelWidthDots + 10, this.previewLabelWidthDots * cols);
+        },
+        previewScale() {
+          return Math.min(0.55, 420 / Math.max(1, this.previewStripWidthDots));
+        },
+        previewStripStyle() {
+          return {
+            width: Math.round(this.previewStripWidthDots * this.previewScale) + 'px',
+            height: Math.round(this.previewLabelHeightDots * this.previewScale) + 'px'
+          };
+        },
+        previewSlots() {
+          const cols = Math.max(1, Math.min(3, parseInt(this.settings.columns, 10) || 3));
+          const itemSlot = {
+            type: 'ITEM',
+            kode: this.previewSample.kode || 'SKU-001',
+            nama: this.previewSample.nama || 'NAMA BARANG',
+            topRight: this.extractTopRight(this.previewSample.nama || '')
+          };
+          const slots = [];
+          for (let i = 0; i < cols; i++) {
+            if (this.settings.enableSeparator && i === cols - 1 && cols > 1) {
+              slots.push({ type: 'SEP' });
+            } else {
+              slots.push(itemSlot);
+            }
+          }
+          return slots;
+        }
+      },
+      mounted() {
+        this.loadPortalLinks();
+        this.loadLocalSettings();
+        this.detectPrinters(false);
+        this.fetchQueueAndConfig(false);
+        this.startPolling();
+      },
+      beforeUnmount() {
+        if (this.pollTimer) clearInterval(this.pollTimer);
+      },
+      methods: {
+        showToast(message, type = 'info') {
+          if (this.toast.timer) clearTimeout(this.toast.timer);
+          this.toast.message = message;
+          this.toast.type = type;
+          this.toast.show = true;
+          this.toast.timer = setTimeout(() => { this.toast.show = false; }, 3200);
+        },
+        loadPortalLinks() {
+          try {
+            const raw = localStorage.getItem(PORTAL_LINKS_KEY);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              this.portalLinks = Object.assign(this.portalLinks, parsed);
+            }
+          } catch (e) {}
+        },
+        savePortalLinks() {
+          try {
+            localStorage.setItem(PORTAL_LINKS_KEY, JSON.stringify(this.portalLinks));
+            this.linkModalOpen = false;
+            this.showToast('Link antar portal disimpan.', 'success');
+          } catch (e) {}
+        },
+        loadLocalSettings() {
+          try {
+            const raw = localStorage.getItem(BARCODE_SETTINGS_LOCAL_KEY);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              this.settings = Object.assign(getFactorySettings(), parsed);
+            }
+          } catch (e) {}
+        },
+        resetDefaultSettings() {
+          this.settings = getFactorySettings();
+          this.showToast('Form dikembalikan ke default pabrik. Klik Simpan Default untuk menerapkan ke semua PC.', 'info');
+        },
+        async saveCentralSettings() {
+          this.isSavingSettings = true;
+          try {
+            localStorage.setItem(BARCODE_SETTINGS_LOCAL_KEY, JSON.stringify(this.settings));
+            const res = await fetch(this.gasUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({
+                barcode_action: 'save_settings',
+                settings: this.settings
+              })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+              if (data.barcode_settings) {
+                this.settings = Object.assign(getFactorySettings(), data.barcode_settings);
+                localStorage.setItem(BARCODE_SETTINGS_LOCAL_KEY, JSON.stringify(this.settings));
+              }
+              this.showToast('Setting default barcode tersimpan untuk semua PC.', 'success');
+            } else {
+              this.showToast(data.message || 'Gagal menyimpan setting ke server.', 'error');
+            }
+          } catch (err) {
+            this.showToast('Setting tersimpan lokal, tetapi gagal sinkron ke server.', 'warning');
+          } finally {
+            this.isSavingSettings = false;
+          }
+        },
+        async fetchQueueAndConfig(manualTrigger = false) {
+          if (this.isLoadingQueue) return;
+          this.isLoadingQueue = true;
+          try {
+            const res = await fetch(this.gasUrl + '?action=barcode_queue&_t=' + Date.now());
+            const data = await res.json();
+            if (data.status === 'success') {
+              if (data.barcode_settings && (!this.showSettings || manualTrigger)) {
+                const remoteTs = Number(data.barcode_settings.updatedAt) || 0;
+                const localTs = Number(this.settings.updatedAt) || 0;
+                if (remoteTs >= localTs || localTs === 0) {
+                  this.settings = Object.assign(getFactorySettings(), data.barcode_settings);
+                  localStorage.setItem(BARCODE_SETTINGS_LOCAL_KEY, JSON.stringify(this.settings));
+                }
+              }
+              if (Array.isArray(data.queue_jobs)) {
+                this.queueJobs = data.queue_jobs;
+                if (this.autoPrintEnabled) {
+                  this.enqueueAutoPrintJobs();
+                }
+              }
+              if (manualTrigger) {
+                this.showToast('Antrean diperbarui.', 'success');
+              }
+            }
+          } catch (err) {
+            if (manualTrigger) {
+              this.showToast('Gagal mengambil antrean dari server.', 'error');
+            }
+          } finally {
+            this.isLoadingQueue = false;
+          }
+        },
+        startPolling() {
+          if (this.pollTimer) clearInterval(this.pollTimer);
+          this.pollTimer = setInterval(() => {
+            if (!document.hidden) {
+              this.fetchQueueAndConfig(false);
+            }
+          }, 4500);
+        },
+        toggleAutoPrint() {
+          this.autoPrintEnabled = !this.autoPrintEnabled;
+          if (this.autoPrintEnabled) {
+            if (this.printerStatus !== 'connected') {
+              this.showToast('Auto-Print aktif. Pastikan Zebra Browser Print terhubung.', 'warning');
+            } else {
+              this.showToast('Auto-Print aktif. Antrean Checker akan dicetak otomatis sesuai urutan FIFO.', 'success');
+            }
+            this.enqueueAutoPrintJobs();
+          } else {
+            this.showToast('Auto-Print dimatikan.', 'info');
+          }
+        },
+        enqueueAutoPrintJobs() {
+          if (!this.autoPrintEnabled || this.printerStatus !== 'connected') return;
+          for (const job of this.pendingJobs) {
+            if (!this.queuedAutoJobIds.has(job.job_id)) {
+              this.queuedAutoJobIds.add(job.job_id);
+              this.pushToPrintDispatcher({
+                label: job.cabang + ' (' + job.pic + ')',
+                items: job.items,
+                jobIdsToMarkDone: [job.job_id]
+              });
+            }
+          }
+        },
+
+        // Excel / Sheets Paste Parser
+        onPasteExcel() {
+          setTimeout(() => {
+            if (this.pasteInput.trim()) {
+              this.parsePasteInput();
+            }
+          }, 50);
+        },
+        parsePasteInput() {
+          const lines = this.pasteInput.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+          let added = 0;
+          for (const line of lines) {
+            let parts = line.split('\t');
+            if (parts.length < 2) {
+              parts = line.split(';');
+            }
+            if (parts.length < 2) {
+              parts = line.split(',');
+            }
+            const kode = String(parts[0] || '').trim();
+            if (!kode || kode.toLowerCase() === 'kode' || kode.toLowerCase() === 'kode barang') continue;
+            let nama = '';
+            let qty = 1;
+            if (parts.length === 2) {
+              const maybeQty = parseInt(String(parts[1]).trim(), 10);
+              if (!isNaN(maybeQty) && String(maybeQty) === String(parts[1]).trim()) {
+                qty = Math.max(1, maybeQty);
+              } else {
+                nama = String(parts[1] || '').trim();
+              }
+            } else {
+              nama = String(parts[1] || '').trim();
+              qty = Math.max(1, parseInt(String(parts[2] || '1').replace(/[^0-9]/g, ''), 10) || 1);
+            }
+            this.manualItems.push({
+              uid: this.uidCounter++,
+              kode: kode,
+              nama: nama,
+              qty: qty
+            });
+            added++;
+          }
+          if (added > 0) {
+            this.pasteInput = '';
+            this.showToast(added + ' baris ditambahkan ke daftar cetak.', 'success');
+          } else {
+            this.showToast('Format tidak terbaca. Gunakan format: Kode [Tab] Nama [Tab] Qty.', 'warning');
+          }
+        },
+        addEmptyRow() {
+          this.manualItems.push({ uid: this.uidCounter++, kode: '', nama: '', qty: 1 });
+        },
+        removeManualItem(idx) {
+          this.manualItems.splice(idx, 1);
+        },
+        clearManualItems() {
+          this.manualItems = [];
+          this.linkedJobIds = [];
+        },
+        sumJobStickers(job) {
+          return (job.items || []).reduce((s, it) => s + (parseInt(it.qty, 10) || 0), 0);
+        },
+        loadJobToManual(job) {
+          (job.items || []).forEach(it => {
+            this.manualItems.push({
+              uid: this.uidCounter++,
+              kode: it.kode,
+              nama: it.nama,
+              qty: parseInt(it.qty, 10) || 1
+            });
+          });
+          if (job.status === 'MENUNGGU' && !this.linkedJobIds.includes(job.job_id)) {
+            this.linkedJobIds.push(job.job_id);
+          }
+          this.showToast('Antrean ' + job.cabang + ' ditarik ke daftar cetak.', 'info');
+        },
+        async deleteQueueJob(jobId) {
+          try {
+            const res = await fetch(this.gasUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({ barcode_action: 'delete_job', job_id: jobId })
+            });
+            const data = await res.json();
+            if (data.status === 'success' && Array.isArray(data.queue_jobs)) {
+              this.queueJobs = data.queue_jobs;
+              this.queuedAutoJobIds.delete(jobId);
+              this.showToast('Antrean dihapus.', 'success');
+            }
+          } catch (err) {
+            this.showToast('Gagal menghapus antrean.', 'error');
+          }
+        },
+        async markJobsDoneOnServer(jobIds) {
+          if (!jobIds || jobIds.length === 0) return;
+          try {
+            const res = await fetch(this.gasUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({ barcode_action: 'mark_done', job_ids: jobIds })
+            });
+            const data = await res.json();
+            if (data.status === 'success' && Array.isArray(data.queue_jobs)) {
+              this.queueJobs = data.queue_jobs;
+            }
+          } catch (e) {}
+        },
+
+        // Core ZPL Logic (Direct port from Barcode Barang.txt)
+        extractTopRight(itemName) {
+          const text = String(itemName || '').trim();
+          if (!text) return '';
+          const lower = text.toLowerCase();
+          const words = lower.replace(/[^a-z0-9./-]+/g, ' ').trim().split(/\s+/).filter(Boolean);
+
+          // Priority 1: Ohm
+          for (let i = 0; i < words.length; i++) {
+            if (words[i].includes('ohm')) {
+              let val = words[i].replace(/ohm/g, '');
+              if (val === '' && i > 0) val = words[i - 1];
+              if (val.includes('-')) val = val.split('-')[0];
+              if (val) return val.toUpperCase();
+            }
+          }
+
+          // Priority 2: MG & Cukai Year
+          let mgVal = '';
+          let yrVal = '';
+          const mgMatch = lower.match(/(\d+(?:\.\d+)?)\s*mg\b/);
+          if (mgMatch) mgVal = mgMatch[1];
+
+          const cukaiMatch = lower.match(/cukai\s*(20\d{2}|\d{2})\b/);
+          if (cukaiMatch) {
+            const y = cukaiMatch[1];
+            yrVal = y.length >= 2 ? y.slice(-2) : y;
+          }
+
+          if (mgVal || yrVal) {
+            return (mgVal || '-') + '/' + (yrVal || '-');
+          }
+          return '';
+        },
+        calcDynamicNameY(nama) {
+          const s = this.settings;
+          const cleanName = String(nama || '').trim();
+          const estChars = Math.max(1, parseInt(s.estCharsPerLine, 10) || 13);
+          const maxLines = Math.max(1, parseInt(s.maxNameLines, 10) || 5);
+          const jumlahBaris = Math.max(1, Math.min(maxLines, Math.floor((Math.max(1, cleanName.length) - 1) / estChars) + 1));
+          return (Number(s.yNameFloor) || 105) - ((jumlahBaris - 1) * (Number(s.lineStepY) || 18));
+        },
+        sanitizeZplText(str) {
+          return String(str || '').replace(/[\^~]/g, ' ').replace(/\r?\n/g, ' ').trim();
+        },
+        buildZplFromItems(items) {
+          const s = this.settings;
+          const cols = Math.max(1, Math.min(3, parseInt(s.columns, 10) || 3));
+          const colOffsets = [Number(s.xCol1) || 10, Number(s.xCol2) || 300, Number(s.xCol3) || 585];
+          const stickerQueue = [];
+
+          for (const it of items) {
+            const sku = this.sanitizeZplText(it.kode);
+            const nama = this.sanitizeZplText(it.nama);
+            const qty = parseInt(it.qty, 10) || 0;
+            if (!sku || qty <= 0) continue;
+            const topRight = this.sanitizeZplText(this.extractTopRight(nama));
+            for (let q = 0; q < qty; q++) {
+              stickerQueue.push({ type: 'ITEM', sku, nama, topRight });
+            }
+            if (s.enableSeparator) {
+              stickerQueue.push({ type: 'SEP' });
+            }
+          }
+
+          if (stickerQueue.length === 0) return '';
+
+          let zpl = '';
+          const darkness = Number(s.darkness) || 25;
+          const speed = Number(s.speed) || 1;
+
+          for (let i = 0; i < stickerQueue.length; i += cols) {
+            zpl += '^XA\r\n';
+            zpl += '^MD' + darkness + '\r\n';
+            zpl += '^PR' + speed + '\r\n';
+
+            for (let c = 0; c < cols; c++) {
+              const slot = stickerQueue[i + c];
+              if (!slot) break;
+              const xBase = colOffsets[c] || 0;
+
+              if (slot.type === 'SEP') {
+                zpl += '^FO' + (xBase + Number(s.xSep)) + ',' + Number(s.ySep) + '^A0N,' + Number(s.fontHeightSep) + ',' + Number(s.fontWidthSep) + '^FD' + this.sanitizeZplText(s.sepText) + '^FS\r\n';
+              } else {
+                zpl += '^FO' + (xBase + Number(s.xQr)) + ',' + Number(s.yQr) + '^BQN,2,' + Number(s.magQr) + '^FDLA,' + slot.sku + '^FS\r\n';
+                zpl += '^FO' + (xBase + Number(s.xSku)) + ',' + Number(s.ySku) + '^A0N,' + Number(s.fontHeightSku) + ',' + Number(s.fontWidthSku) + '^FD' + slot.sku + '^FS\r\n';
+                if (slot.topRight) {
+                  zpl += '^FO' + (xBase + Number(s.xMg)) + ',' + Number(s.yMg) + '^A0N,' + Number(s.fontHeightMg) + ',' + Number(s.fontWidthMg) + '^FD' + slot.topRight + '^FS\r\n';
+                }
+                const yDyn = this.calcDynamicNameY(slot.nama);
+                zpl += '^FO' + (xBase + Number(s.xName)) + ',' + yDyn + '^A0N,' + Number(s.fontHeightName) + ',' + Number(s.fontWidthName) + '^FB' + Number(s.nameBlockWidth) + ',' + Number(s.maxNameLines) + ',' + Number(s.visualLineSpacing) + ',L^FD' + slot.nama + '^FS\r\n';
+              }
+            }
+            zpl += '^XZ\r\n';
+          }
+          return zpl;
+        },
+
+        // Zebra Browser Print Integration
+        async detectPrinters(showNotify = false) {
+          this.printerStatus = 'checking';
+          const endpoints = ['https://localhost:9101', 'http://localhost:9100'];
+          for (const base of endpoints) {
+            try {
+              const res = await fetch(base + '/available', { method: 'GET' });
+              if (!res.ok) continue;
+              const data = await res.json();
+              const list = Array.isArray(data.printer) ? data.printer : (Array.isArray(data) ? data : []);
+              if (list.length > 0) {
+                this.printerBaseUrl = base;
+                this.printers = list;
+                const pref = String(this.settings.sharePrinterName || 'Zebra').toLowerCase();
+                const matched = list.find(p => String(p.name || '').toLowerCase().includes(pref)) || list[0];
+                this.selectedPrinterUid = matched.uid;
+                this.printerStatus = 'connected';
+                if (showNotify) this.showToast('Terhubung ke printer: ' + matched.name, 'success');
+                return true;
+              }
+            } catch (e) {}
+          }
+          this.printers = [];
+          this.selectedPrinterUid = '';
+          this.printerStatus = 'offline';
+          if (showNotify) {
+            this.showToast('Zebra Browser Print tidak terdeteksi di PC ini. Gunakan tombol Download ZPL atau aktifkan Zebra Browser Print.', 'warning');
+          }
+          return false;
+        },
+        async sendRawZplToPrinter(zplData) {
+          if (!this.selectedPrinterObj) {
+            const ok = await this.detectPrinters(false);
+            if (!ok || !this.selectedPrinterObj) {
+              throw new Error('Printer Zebra tidak terdeteksi.');
+            }
+          }
+          const res = await fetch(this.printerBaseUrl + '/write', {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              device: this.selectedPrinterObj,
+              data: zplData
+            })
+          });
+          if (!res.ok) {
+            throw new Error('Gagal mengirim data ZPL ke printer (HTTP ' + res.status + ').');
+          }
+        },
+
+        // Sequential FIFO Dispatcher (Zero-Crash Multi-User Guarantee)
+        pushToPrintDispatcher(task) {
+          this.localPrintQueue.push(task);
+          if (!this.isPrinting) {
+            this.processPrintQueue();
+          }
+        },
+        async processPrintQueue() {
+          if (this.isPrinting) return;
+          this.isPrinting = true;
+          while (this.localPrintQueue.length > 0) {
+            const task = this.localPrintQueue.shift();
+            this.currentPrintLabel = task.label || 'Barcode';
+            try {
+              const zpl = task.rawZpl ? task.rawZpl : this.buildZplFromItems(task.items || []);
+              if (!zpl) continue;
+              await this.sendRawZplToPrinter(zpl);
+              if (task.jobIdsToMarkDone && task.jobIdsToMarkDone.length > 0) {
+                await this.markJobsDoneOnServer(task.jobIdsToMarkDone);
+              }
+              if (task.clearManualAfter) {
+                this.manualItems = [];
+                this.linkedJobIds = [];
+              }
+              this.showToast('Berhasil dicetak: ' + this.currentPrintLabel, 'success');
+            } catch (err) {
+              this.showToast(err.message || 'Gagal mencetak ke Zebra.', 'error');
+              if (task.jobIdsToMarkDone) {
+                task.jobIdsToMarkDone.forEach(id => this.queuedAutoJobIds.delete(id));
+              }
+            }
+            await new Promise(r => setTimeout(r, 350));
+          }
+          this.isPrinting = false;
+          this.currentPrintLabel = '';
+        },
+
+        printManualItems() {
+          if (this.validManualItems.length === 0) return;
+          const itemsCopy = this.validManualItems.map(it => ({ kode: it.kode, nama: it.nama, qty: parseInt(it.qty, 10) || 1 }));
+          const linkedCopy = [...this.linkedJobIds];
+          this.pushToPrintDispatcher({
+            label: 'Daftar Manual (' + itemsCopy.length + ' SKU)',
+            items: itemsCopy,
+            jobIdsToMarkDone: linkedCopy,
+            clearManualAfter: linkedCopy.length > 0
+          });
+        },
+        printQueueJob(job) {
+          const itemsCopy = (job.items || []).map(it => ({ kode: it.kode, nama: it.nama, qty: parseInt(it.qty, 10) || 1 }));
+          this.pushToPrintDispatcher({
+            label: job.cabang + ' (' + job.pic + ')',
+            items: itemsCopy,
+            jobIdsToMarkDone: job.status === 'MENUNGGU' ? [job.job_id] : []
+          });
+        },
+        printAllPendingJobs() {
+          if (this.pendingJobs.length === 0) return;
+          for (const job of this.pendingJobs) {
+            this.printQueueJob(job);
+          }
+        },
+        testPrintOneRow() {
+          const cols = Math.max(1, Math.min(3, parseInt(this.settings.columns, 10) || 3));
+          const testQty = this.settings.enableSeparator && cols > 1 ? (cols - 1) : cols;
+          this.pushToPrintDispatcher({
+            label: 'Test Print 1 Baris',
+            items: [{ kode: this.previewSample.kode || 'TEST-001', nama: this.previewSample.nama || 'TEST BARCODE', qty: testQty }]
+          });
+        },
+        runCalibration() {
+          this.calibrateModalOpen = false;
+          this.pushToPrintDispatcher({
+            label: 'Kalibrasi Sensor Zebra',
+            rawZpl: '~JC\r\n^XA^JUS^XZ'
+          });
+        },
+        downloadManualZpl() {
+          const zpl = this.buildZplFromItems(this.validManualItems);
+          if (!zpl) return;
+          const blob = new Blob([zpl], { type: 'text/plain;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'barcode_zpl_' + new Date().toISOString().slice(0, 10) + '.txt';
+          a.click();
+          URL.revokeObjectURL(url);
+          this.showToast('File ZPL (.txt) diunduh.', 'success');
+        },
+
+        // Live Visual Preview Style Helpers
+        getSlotBoxStyle(idx) {
+          const offsets = [Number(this.settings.xCol1) || 0, Number(this.settings.xCol2) || 0, Number(this.settings.xCol3) || 0];
+          const x = offsets[idx] || 0;
+          return {
+            left: Math.round(x * this.previewScale) + 'px',
+            width: Math.round(this.previewLabelWidthDots * this.previewScale) + 'px',
+            height: Math.round(this.previewLabelHeightDots * this.previewScale) + 'px'
+          };
+        },
+        getQrStyle() {
+          const qrDots = (Number(this.settings.magQr) || 3) * 21;
+          return {
+            left: Math.round((Number(this.settings.xQr) || 0) * this.previewScale) + 'px',
+            top: Math.round((Number(this.settings.yQr) || 0) * this.previewScale) + 'px',
+            width: Math.max(14, Math.round(qrDots * this.previewScale)) + 'px',
+            height: Math.max(14, Math.round(qrDots * this.previewScale)) + 'px'
+          };
+        },
+        getSkuStyle() {
+          return {
+            left: Math.round((Number(this.settings.xSku) || 0) * this.previewScale) + 'px',
+            top: Math.round((Number(this.settings.ySku) || 0) * this.previewScale) + 'px',
+            fontSize: Math.max(6, Math.round((Number(this.settings.fontHeightSku) || 15) * this.previewScale)) + 'px'
+          };
+        },
+        getMgStyle() {
+          return {
+            left: Math.round((Number(this.settings.xMg) || 0) * this.previewScale) + 'px',
+            top: Math.round((Number(this.settings.yMg) || 0) * this.previewScale) + 'px',
+            fontSize: Math.max(6, Math.round((Number(this.settings.fontHeightMg) || 16) * this.previewScale)) + 'px'
+          };
+        },
+        getNameStyle(nama) {
+          const yDyn = this.calcDynamicNameY(nama);
+          return {
+            left: Math.round((Number(this.settings.xName) || 0) * this.previewScale) + 'px',
+            top: Math.max(0, Math.round(yDyn * this.previewScale)) + 'px',
+            width: Math.round((Number(this.settings.nameBlockWidth) || 160) * this.previewScale) + 'px',
+            fontSize: Math.max(6, Math.round((Number(this.settings.fontHeightName) || 20) * this.previewScale * 0.85)) + 'px',
+            lineHeight: '1.05'
+          };
+        },
+        getSepStyle() {
+          return {
+            left: Math.round((Number(this.settings.xSep) || 0) * this.previewScale) + 'px',
+            top: Math.round((Number(this.settings.ySep) || 0) * this.previewScale) + 'px',
+            fontSize: Math.max(10, Math.round((Number(this.settings.fontHeightSep) || 60) * this.previewScale * 0.8)) + 'px'
+          };
+        }
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>
