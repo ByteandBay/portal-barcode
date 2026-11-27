@@ -1084,7 +1084,7 @@
           if (this.pollTimer) clearInterval(this.pollTimer);
           this.pollTimer = setInterval(() => {
             this.fetchQueueAndConfig(false);
-          }, 5000);
+          }, 2000);
         },
         toggleAutoPrint() {
           this.autoPrintEnabled = !this.autoPrintEnabled;
@@ -1195,8 +1195,8 @@
           (job.items || []).forEach(it => {
             this.manualItems.push({
               uid: this.uidCounter++,
-              kode: it.kode,
-              nama: it.nama,
+              kode: String(it.kode !== undefined && it.kode !== null ? it.kode : '').trim(),
+              nama: String(it.nama !== undefined && it.nama !== null ? it.nama : '').trim(),
               qty: parseInt(it.qty, 10) || 1,
               selected: false
             });
@@ -1433,7 +1433,15 @@
                 }
               }
               if (task.jobIdsToMarkDone && task.jobIdsToMarkDone.length > 0) {
-                await this.markJobsDoneOnServer(task.jobIdsToMarkDone);
+                const doneSet = new Set(task.jobIdsToMarkDone.map(id => String(id)));
+                const nowStr = new Date().toLocaleTimeString('id-ID', { hour12: false });
+                this.queueJobs.forEach(j => {
+                  if (doneSet.has(String(j.job_id))) {
+                    j.status = 'SELESAI';
+                    j.printed_at = nowStr;
+                  }
+                });
+                this.markJobsDoneOnServer(task.jobIdsToMarkDone);
               }
               if (task.clearManualAfter) {
                 this.manualItems = [];
@@ -1446,7 +1454,7 @@
                 task.jobIdsToMarkDone.forEach(id => this.queuedAutoJobIds.delete(id));
               }
             }
-            await new Promise(r => setTimeout(r, 350));
+            await new Promise(r => setTimeout(r, 150));
           }
           this.isPrinting = false;
           this.currentPrintLabel = '';
