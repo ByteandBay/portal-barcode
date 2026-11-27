@@ -1404,7 +1404,7 @@
           try {
             for (const base of endpoints) {
               try {
-                const res = await this.fetchWithTimeout(base + '/available', { method: 'GET', cache: 'no-store' }, 3000);
+                const res = await this.fetchWithTimeout(base + '/available', { method: 'GET' }, 3000);
                 if (!res.ok) continue;
                 const data = await res.json();
                 const list = Array.isArray(data.printer) ? data.printer : (Array.isArray(data) ? data : []);
