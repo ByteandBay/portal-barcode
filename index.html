@@ -163,6 +163,14 @@
                   <span class="text-[11px] font-bold text-slate-600">Nama Printer</span>
                   <input type="text" v-model.trim="settings.sharePrinterName" class="mt-1 w-full px-2.5 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg focus:border-blue-500 outline-none">
                 </label>
+                <label class="block col-span-2">
+                  <span class="text-[11px] font-bold text-slate-600">Jeda Tiap (Stiker, 0=Off)</span>
+                  <input type="number" min="0" step="30" v-model.number="settings.cooldownEveryStickers" class="mt-1 w-full px-2.5 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg focus:border-blue-500 outline-none">
+                </label>
+                <label class="block col-span-2">
+                  <span class="text-[11px] font-bold text-slate-600">Durasi Jeda (Detik)</span>
+                  <input type="number" min="0" max="30" v-model.number="settings.cooldownSeconds" class="mt-1 w-full px-2.5 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg focus:border-blue-500 outline-none">
+                </label>
               </div>
             </div>
 
@@ -188,7 +196,7 @@
 
               <div class="border border-slate-200 rounded-xl p-3 bg-slate-50/70">
                 <h3 class="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 mb-2.5">QR Code</h3>
-                <div class="grid grid-cols-3 gap-2">
+                <div class="grid grid-cols-4 gap-2">
                   <label class="block">
                     <span class="text-[11px] font-bold text-slate-600">X</span>
                     <input type="number" v-model.number="settings.xQr" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
@@ -198,8 +206,17 @@
                     <input type="number" v-model.number="settings.yQr" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
                   </label>
                   <label class="block">
-                    <span class="text-[11px] font-bold text-slate-600">Magnifikasi</span>
+                    <span class="text-[11px] font-bold text-slate-600">Zoom</span>
                     <input type="number" min="1" max="10" v-model.number="settings.magQr" class="mt-1 w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                  </label>
+                  <label class="block">
+                    <span class="text-[11px] font-bold text-slate-600">Level</span>
+                    <select v-model="settings.qrErrorLevel" class="mt-1 w-full px-1.5 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-lg outline-none">
+                      <option value="L">L (7%)</option>
+                      <option value="M">M (15%)</option>
+                      <option value="Q">Q (25%)</option>
+                      <option value="H">H (30%)</option>
+                    </select>
                   </label>
                 </div>
               </div>
@@ -739,14 +756,17 @@
         paperHeightMm: 14.5,
         columns: 3,
         dpi: 203,
-        darkness: 25,
-        speed: 1,
+        darkness: 18,
+        speed: 2,
+        cooldownEveryStickers: 150,
+        cooldownSeconds: 3,
         xCol1: 10,
         xCol2: 300,
         xCol3: 585,
         xQr: 0,
         yQr: 25,
         magQr: 3,
+        qrErrorLevel: 'L',
         xSku: 70,
         ySku: 15,
         fontHeightSku: 15,
@@ -1262,14 +1282,18 @@
 
           if (stickerQueue.length === 0) return '';
 
-          let zpl = '';
-          const darkness = Number(s.darkness) || 25;
-          const speed = Number(s.speed) || 1;
+          const darknessNum = Math.max(0, Math.min(30, Number(s.darkness) || 18));
+          const darknessStr = String(darknessNum).padStart(2, '0');
+          const speed = Math.max(1, Math.min(6, Number(s.speed) || 2));
+          const qrLevel = ['L', 'M', 'Q', 'H'].includes(String(s.qrErrorLevel || 'L').toUpperCase())
+            ? String(s.qrErrorLevel).toUpperCase()
+            : 'L';
 
+          const rowBlocks = [];
           for (let i = 0; i < stickerQueue.length; i += cols) {
-            zpl += '^XA\r\n';
-            zpl += '^MD' + darkness + '\r\n';
-            zpl += '^PR' + speed + '\r\n';
+            let block = '^XA\r\n';
+            block += '~SD' + darknessStr + '\r\n';
+            block += '^PR' + speed + '\r\n';
 
             for (let c = 0; c < cols; c++) {
               const slot = stickerQueue[i + c];
@@ -1277,20 +1301,36 @@
               const xBase = colOffsets[c] || 0;
 
               if (slot.type === 'SEP') {
-                zpl += '^FO' + (xBase + Number(s.xSep)) + ',' + Number(s.ySep) + '^A0N,' + Number(s.fontHeightSep) + ',' + Number(s.fontWidthSep) + '^FD' + this.sanitizeZplText(s.sepText) + '^FS\r\n';
+                block += '^FO' + (xBase + Number(s.xSep)) + ',' + Number(s.ySep) + '^A0N,' + Number(s.fontHeightSep) + ',' + Number(s.fontWidthSep) + '^FD' + this.sanitizeZplText(s.sepText) + '^FS\r\n';
               } else {
-                zpl += '^FO' + (xBase + Number(s.xQr)) + ',' + Number(s.yQr) + '^BQN,2,' + Number(s.magQr) + '^FDLA,' + slot.sku + '^FS\r\n';
-                zpl += '^FO' + (xBase + Number(s.xSku)) + ',' + Number(s.ySku) + '^A0N,' + Number(s.fontHeightSku) + ',' + Number(s.fontWidthSku) + '^FD' + slot.sku + '^FS\r\n';
+                block += '^FO' + (xBase + Number(s.xQr)) + ',' + Number(s.yQr) + '^BQN,2,' + Number(s.magQr) + '^FD' + qrLevel + 'A,' + slot.sku + '^FS\r\n';
+                block += '^FO' + (xBase + Number(s.xSku)) + ',' + Number(s.ySku) + '^A0N,' + Number(s.fontHeightSku) + ',' + Number(s.fontWidthSku) + '^FD' + slot.sku + '^FS\r\n';
                 if (slot.topRight) {
-                  zpl += '^FO' + (xBase + Number(s.xMg)) + ',' + Number(s.yMg) + '^A0N,' + Number(s.fontHeightMg) + ',' + Number(s.fontWidthMg) + '^FD' + slot.topRight + '^FS\r\n';
+                  block += '^FO' + (xBase + Number(s.xMg)) + ',' + Number(s.yMg) + '^A0N,' + Number(s.fontHeightMg) + ',' + Number(s.fontWidthMg) + '^FD' + slot.topRight + '^FS\r\n';
                 }
                 const yDyn = this.calcDynamicNameY(slot.nama);
-                zpl += '^FO' + (xBase + Number(s.xName)) + ',' + yDyn + '^A0N,' + Number(s.fontHeightName) + ',' + Number(s.fontWidthName) + '^FB' + Number(s.nameBlockWidth) + ',' + Number(s.maxNameLines) + ',' + Number(s.visualLineSpacing) + ',L^FD' + slot.nama + '^FS\r\n';
+                block += '^FO' + (xBase + Number(s.xName)) + ',' + yDyn + '^A0N,' + Number(s.fontHeightName) + ',' + Number(s.fontWidthName) + '^FB' + Number(s.nameBlockWidth) + ',' + Number(s.maxNameLines) + ',' + Number(s.visualLineSpacing) + ',L^FD' + slot.nama + '^FS\r\n';
               }
             }
-            zpl += '^XZ\r\n';
+            block += '^XZ\r\n';
+            rowBlocks.push(block);
           }
-          return zpl;
+          return rowBlocks.join('');
+        },
+        buildZplChunksFromItems(items) {
+          const fullZpl = this.buildZplFromItems(items);
+          if (!fullZpl) return [];
+          const everyStickers = Math.max(0, parseInt(this.settings.cooldownEveryStickers, 10) || 0);
+          const cols = Math.max(1, Math.min(3, parseInt(this.settings.columns, 10) || 3));
+          if (everyStickers <= 0) return [fullZpl];
+          const rowsPerChunk = Math.max(1, Math.floor(everyStickers / cols));
+          const rawBlocks = fullZpl.split('^XZ\r\n').filter(Boolean).map(b => b + '^XZ\r\n');
+          if (rawBlocks.length <= rowsPerChunk) return [fullZpl];
+          const chunks = [];
+          for (let i = 0; i < rawBlocks.length; i += rowsPerChunk) {
+            chunks.push(rawBlocks.slice(i, i + rowsPerChunk).join(''));
+          }
+          return chunks;
         },
 
         // Zebra Browser Print Integration
@@ -1358,9 +1398,19 @@
             const task = this.localPrintQueue.shift();
             this.currentPrintLabel = task.label || 'Barcode';
             try {
-              const zpl = task.rawZpl ? task.rawZpl : this.buildZplFromItems(task.items || []);
-              if (!zpl) continue;
-              await this.sendRawZplToPrinter(zpl);
+              const chunks = task.rawZpl ? [task.rawZpl] : this.buildZplChunksFromItems(task.items || []);
+              if (chunks.length === 0) continue;
+              const pauseMs = Math.max(0, (Number(this.settings.cooldownSeconds) || 0) * 1000);
+              for (let ci = 0; ci < chunks.length; ci++) {
+                if (chunks.length > 1) {
+                  this.currentPrintLabel = (task.label || 'Barcode') + ' [Batch ' + (ci + 1) + '/' + chunks.length + ']';
+                }
+                await this.sendRawZplToPrinter(chunks[ci]);
+                if (ci < chunks.length - 1 && pauseMs > 0) {
+                  this.currentPrintLabel = (task.label || 'Barcode') + ' [Jeda pendinginan ' + Math.round(pauseMs / 1000) + ' dtk (' + (ci + 1) + '/' + chunks.length + ')]';
+                  await new Promise(r => setTimeout(r, pauseMs));
+                }
+              }
               if (task.jobIdsToMarkDone && task.jobIdsToMarkDone.length > 0) {
                 await this.markJobsDoneOnServer(task.jobIdsToMarkDone);
               }
