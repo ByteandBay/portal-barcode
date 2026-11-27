@@ -859,6 +859,9 @@
           localPrintQueue: [],
           isPrinting: false,
           currentPrintLabel: '',
+          printerHeartbeatTimer: null,
+          isCheckingPrinter: false,
+          wakeLockSentinel: null,
 
           toast: { show: false, message: '', type: 'info', timer: null }
         };
@@ -939,23 +942,49 @@
       mounted() {
         this.loadPortalLinks();
         this.loadLocalSettings();
-        this.detectPrinters(false);
+        this.detectPrinters(false, false);
         this.fetchQueueAndConfig(false);
         this.startPolling();
+        this.startPrinterHeartbeat();
+        this.requestWakeLock();
         document.addEventListener('visibilitychange', this.onVisibilityChange);
       },
       beforeUnmount() {
         if (this.pollTimer) clearInterval(this.pollTimer);
+        if (this.printerHeartbeatTimer) clearInterval(this.printerHeartbeatTimer);
+        if (this.wakeLockSentinel) {
+          try { this.wakeLockSentinel.release(); } catch (e) {}
+        }
         document.removeEventListener('visibilitychange', this.onVisibilityChange);
       },
       methods: {
         isJobPending(job) {
           return String((job && job.status) || 'MENUNGGU').trim().toUpperCase() === 'MENUNGGU';
         },
+        async requestWakeLock() {
+          try {
+            if ('wakeLock' in navigator && !this.wakeLockSentinel) {
+              this.wakeLockSentinel = await navigator.wakeLock.request('screen');
+              this.wakeLockSentinel.addEventListener('release', () => {
+                this.wakeLockSentinel = null;
+              });
+            }
+          } catch (e) {}
+        },
         onVisibilityChange() {
           if (!document.hidden) {
+            this.requestWakeLock();
+            this.detectPrinters(false, true);
             this.fetchQueueAndConfig(false);
           }
+        },
+        startPrinterHeartbeat() {
+          if (this.printerHeartbeatTimer) clearInterval(this.printerHeartbeatTimer);
+          this.printerHeartbeatTimer = setInterval(() => {
+            if (!this.isPrinting) {
+              this.detectPrinters(false, true);
+            }
+          }, 15000);
         },
         showToast(message, type = 'info') {
           if (this.toast.timer) clearTimeout(this.toast.timer);
@@ -1354,54 +1383,105 @@
           return chunks;
         },
 
-        // Zebra Browser Print Integration
-        async detectPrinters(showNotify = false) {
-          this.printerStatus = 'checking';
+        // Zebra Browser Print Integration (with Silent Auto-Reconnect & Auto-Retry)
+        async fetchWithTimeout(url, options = {}, timeoutMs = 3500) {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), timeoutMs);
+          try {
+            return await fetch(url, Object.assign({}, options, { signal: controller.signal }));
+          } finally {
+            clearTimeout(timer);
+          }
+        },
+        async detectPrinters(showNotify = false, silent = false) {
+          if (this.isCheckingPrinter) return this.printerStatus === 'connected';
+          this.isCheckingPrinter = true;
+          const prevStatus = this.printerStatus;
+          if (!silent) {
+            this.printerStatus = 'checking';
+          }
           const endpoints = ['https://localhost:9101', 'http://localhost:9100'];
-          for (const base of endpoints) {
-            try {
-              const res = await fetch(base + '/available', { method: 'GET' });
-              if (!res.ok) continue;
-              const data = await res.json();
-              const list = Array.isArray(data.printer) ? data.printer : (Array.isArray(data) ? data : []);
-              if (list.length > 0) {
-                this.printerBaseUrl = base;
-                this.printers = list;
-                const pref = String(this.settings.sharePrinterName || 'Zebra').toLowerCase();
-                const matched = list.find(p => String(p.name || '').toLowerCase().includes(pref)) || list[0];
-                this.selectedPrinterUid = matched.uid;
-                this.printerStatus = 'connected';
-                if (showNotify) this.showToast('Terhubung ke printer: ' + matched.name, 'success');
-                return true;
-              }
-            } catch (e) {}
+          try {
+            for (const base of endpoints) {
+              try {
+                const res = await this.fetchWithTimeout(base + '/available', { method: 'GET', cache: 'no-store' }, 3000);
+                if (!res.ok) continue;
+                const data = await res.json();
+                const list = Array.isArray(data.printer) ? data.printer : (Array.isArray(data) ? data : []);
+                if (list.length > 0) {
+                  this.printerBaseUrl = base;
+                  this.printers = list;
+                  const keepExisting = list.find(p => p.uid === this.selectedPrinterUid);
+                  if (keepExisting) {
+                    this.selectedPrinterUid = keepExisting.uid;
+                  } else {
+                    const pref = String(this.settings.sharePrinterName || 'Zebra').toLowerCase();
+                    const matched = list.find(p => String(p.name || '').toLowerCase().includes(pref)) || list[0];
+                    this.selectedPrinterUid = matched.uid;
+                  }
+                  this.printerStatus = 'connected';
+                  if (showNotify) {
+                    const activeName = (this.selectedPrinterObj && this.selectedPrinterObj.name) || list[0].name;
+                    this.showToast('Terhubung ke printer: ' + activeName, 'success');
+                  } else if (prevStatus === 'offline') {
+                    this.showToast('Printer Zebra terhubung kembali.', 'success');
+                    if (this.autoPrintEnabled) {
+                      this.enqueueAutoPrintJobs();
+                    }
+                  }
+                  return true;
+                }
+              } catch (e) {}
+            }
+            this.printers = [];
+            this.selectedPrinterUid = '';
+            this.printerStatus = 'offline';
+            if (showNotify) {
+              this.showToast('Zebra Browser Print tidak terdeteksi. Pastikan aplikasi berjalan dan sertifikat https://localhost:9101 sudah disetujui.', 'warning');
+            }
+            return false;
+          } finally {
+            this.isCheckingPrinter = false;
           }
-          this.printers = [];
-          this.selectedPrinterUid = '';
-          this.printerStatus = 'offline';
-          if (showNotify) {
-            this.showToast('Zebra Browser Print tidak terdeteksi. Pastikan aplikasi berjalan dan sertifikat https://localhost:9101 sudah disetujui.', 'warning');
-          }
-          return false;
         },
         async sendRawZplToPrinter(zplData) {
-          if (!this.selectedPrinterObj) {
-            const ok = await this.detectPrinters(false);
-            if (!ok || !this.selectedPrinterObj) {
-              throw new Error('Printer Zebra tidak terdeteksi.');
+          for (let attempt = 1; attempt <= 2; attempt++) {
+            if (!this.selectedPrinterObj || attempt === 2) {
+              if (attempt === 2) {
+                this.printers = [];
+                this.selectedPrinterUid = '';
+              }
+              const ok = await this.detectPrinters(false, true);
+              if (!ok || !this.selectedPrinterObj) {
+                this.printerStatus = 'offline';
+                throw new Error('Printer Zebra tidak terdeteksi.');
+              }
             }
-          }
-          const plainDevice = JSON.parse(JSON.stringify(this.selectedPrinterObj));
-          const res = await fetch(this.printerBaseUrl + '/write', {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({
-              device: plainDevice,
-              data: zplData
-            })
-          });
-          if (!res.ok) {
-            throw new Error('Gagal mengirim data ZPL ke printer (HTTP ' + res.status + ').');
+            try {
+              const plainDevice = JSON.parse(JSON.stringify(this.selectedPrinterObj));
+              const res = await this.fetchWithTimeout(this.printerBaseUrl + '/write', {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({
+                  device: plainDevice,
+                  data: zplData
+                })
+              }, 8000);
+              if (res.ok) {
+                this.printerStatus = 'connected';
+                return;
+              }
+              if (attempt === 2) {
+                this.printerStatus = 'offline';
+                throw new Error('Gagal mengirim data ZPL ke printer (HTTP ' + res.status + ').');
+              }
+            } catch (err) {
+              if (attempt === 2) {
+                this.printerStatus = 'offline';
+                throw new Error(err && err.message ? err.message : 'Koneksi ke Zebra Browser Print terputus.');
+              }
+              await new Promise(r => setTimeout(r, 400));
+            }
           }
         },
 
