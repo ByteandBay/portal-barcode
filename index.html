@@ -406,12 +406,17 @@
                 Terhubung dengan {{ linkedJobIds.length }} antrean Checker
               </p>
             </div>
-            <div class="flex items-center gap-1.5">
+            <div class="flex flex-wrap items-center gap-1.5">
               <button @click="addEmptyRow" class="px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold">
                 + Baris
               </button>
-              <button @click="clearManualItems" :disabled="manualItems.length === 0" class="px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 text-slate-600 text-xs font-bold disabled:opacity-40">
-                Bersihkan
+              <button v-if="selectedManualCount > 0" @click="deleteSelectedManualItems"
+                class="px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-xs">
+                Hapus Terpilih ({{ selectedManualCount }})
+              </button>
+              <button @click="clearManualItems" :disabled="manualItems.length === 0"
+                class="px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 text-slate-600 text-xs font-bold disabled:opacity-40">
+                Hapus Semua
               </button>
             </div>
           </div>
@@ -434,22 +439,31 @@
             <table class="w-full text-left border-collapse">
               <thead class="sticky top-0 bg-slate-100 text-[11px] font-extrabold text-slate-600 uppercase border-b border-slate-200 z-10">
                 <tr>
-                  <th class="py-2 px-3 w-10 text-center">No</th>
+                  <th class="py-2 px-2.5 w-9 text-center">
+                    <input type="checkbox" :checked="allManualSelected" :disabled="manualItems.length === 0" @change="toggleSelectAllManual($event.target.checked)"
+                      title="Pilih Semua" class="rounded border-slate-300 text-blue-600 cursor-pointer">
+                  </th>
+                  <th class="py-2 px-2 w-9 text-center">No</th>
                   <th class="py-2 px-2 w-32">Kode</th>
                   <th class="py-2 px-2">Nama Barang</th>
                   <th class="py-2 px-2 w-16 text-center">Info</th>
                   <th class="py-2 px-2 w-20 text-center">Qty</th>
-                  <th class="py-2 px-2 w-10 text-center"></th>
+                  <th class="py-2 px-2 w-9 text-center"></th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100 text-xs">
                 <tr v-if="manualItems.length === 0">
-                  <td colspan="6" class="py-10 text-center text-slate-400 font-semibold">
+                  <td colspan="7" class="py-10 text-center text-slate-400 font-semibold">
                     Belum ada daftar barang. Paste data dari Excel/Sheets atau tarik dari Antrean Checker.
                   </td>
                 </tr>
-                <tr v-for="(item, idx) in manualItems" :key="item.uid" class="hover:bg-slate-50/80">
-                  <td class="py-1.5 px-3 text-center font-bold text-slate-400">{{ idx + 1 }}</td>
+                <tr v-for="(item, idx) in manualItems" :key="item.uid"
+                  class="hover:bg-slate-50/80 transition-colors"
+                  :class="item.selected ? 'bg-rose-50/50' : ''">
+                  <td class="py-1.5 px-2.5 text-center">
+                    <input type="checkbox" v-model="item.selected" class="rounded border-slate-300 text-blue-600 cursor-pointer">
+                  </td>
+                  <td class="py-1.5 px-2 text-center font-bold text-slate-400">{{ idx + 1 }}</td>
                   <td class="py-1.5 px-2">
                     <input type="text" v-model.trim="item.kode" placeholder="SKU"
                       class="w-full px-2 py-1 text-xs font-mono font-bold bg-white border border-slate-200 rounded-lg focus:border-blue-500 outline-none">
@@ -522,15 +536,20 @@
               </span>
             </div>
             <div class="flex items-center gap-1.5">
-              <button @click="fetchQueueAndConfig(true)" :disabled="isLoadingQueue"
+              <button @click="fetchQueueAndConfig(true)" :disabled="isManualRefreshing"
                 class="px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold disabled:opacity-50">
-                {{ isLoadingQueue ? '...' : 'Refresh' }}
+                {{ isManualRefreshing ? 'Memuat...' : 'Refresh' }}
               </button>
               <button v-if="pendingJobs.length > 0" @click="printAllPendingJobs"
                 class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold">
                 Cetak Semua
               </button>
             </div>
+          </div>
+
+          <!-- Server Sync Error Banner (if GAS outdated or unreachable) -->
+          <div v-if="queueSyncError" class="px-3.5 py-2 bg-rose-50 border-b border-rose-200 text-[11px] font-bold text-rose-700">
+            {{ queueSyncError }}
           </div>
 
           <!-- Tabs -->
@@ -553,22 +572,22 @@
 
             <div v-for="(job, jIdx) in displayedJobs" :key="job.job_id"
               class="rounded-xl border p-3 transition-all"
-              :class="job.status === 'MENUNGGU' ? 'border-slate-200 bg-white hover:border-blue-300' : 'border-slate-200 bg-slate-50/70 opacity-80'">
+              :class="isJobPending(job) ? 'border-slate-200 bg-white hover:border-blue-300' : 'border-slate-200 bg-slate-50/70 opacity-80'">
               <div class="flex items-start justify-between gap-2 mb-2">
                 <div>
                   <div class="flex items-center gap-1.5">
-                    <span v-if="job.status === 'MENUNGGU'" class="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 text-[10px] font-extrabold">#{{ jIdx + 1 }}</span>
+                    <span v-if="isJobPending(job)" class="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 text-[10px] font-extrabold">#{{ jIdx + 1 }}</span>
                     <span class="text-xs font-extrabold text-slate-900">{{ job.cabang }}</span>
                   </div>
                   <p class="text-[11px] font-semibold text-slate-500 mt-0.5">
                     {{ job.no_it }} • PIC: {{ job.pic }}
                   </p>
                   <p class="text-[10px] font-medium text-slate-400">
-                    {{ job.status === 'SELESAI' && job.printed_at ? ('Dicetak: ' + job.printed_at) : job.timestamp }}
+                    {{ !isJobPending(job) && job.printed_at ? ('Dicetak: ' + job.printed_at) : job.timestamp }}
                   </p>
                 </div>
                 <span class="px-2 py-0.5 rounded-md text-[10px] font-extrabold shrink-0"
-                  :class="job.status === 'MENUNGGU' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'">
+                  :class="isJobPending(job) ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'">
                   {{ job.items.length }} SKU • {{ sumJobStickers(job) }} pcs
                 </span>
               </div>
@@ -581,7 +600,7 @@
                     <div class="text-slate-600 truncate">{{ it.nama }}</div>
                   </div>
                   <div class="shrink-0 flex items-center gap-1">
-                    <input v-if="job.status === 'MENUNGGU'" type="number" min="1" v-model.number="it.qty"
+                    <input v-if="isJobPending(job)" type="number" min="1" v-model.number="it.qty"
                       class="w-12 px-1.5 py-0.5 text-center font-extrabold bg-white border border-slate-300 rounded text-[11px] outline-none">
                     <span v-else class="font-extrabold text-slate-700">{{ it.qty }}</span>
                     <span class="text-[10px] text-slate-400 font-bold">pcs</span>
@@ -599,7 +618,7 @@
                     Tarik
                   </button>
                   <button @click="printQueueJob(job)" class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-extrabold">
-                    {{ job.status === 'MENUNGGU' ? 'Cetak' : 'Cetak Ulang' }}
+                    {{ isJobPending(job) ? 'Cetak' : 'Cetak Ulang' }}
                   </button>
                 </div>
               </div>
@@ -784,7 +803,9 @@
           // Antrean Checker FIFO
           queueJobs: [],
           queueTab: 'MENUNGGU',
-          isLoadingQueue: false,
+          isBackgroundSyncing: false,
+          isManualRefreshing: false,
+          queueSyncError: '',
           autoPrintEnabled: false,
           pollTimer: null,
           queuedAutoJobIds: new Set(),
@@ -805,6 +826,12 @@
         validManualItems() {
           return this.manualItems.filter(it => String(it.kode || '').trim() !== '' && (parseInt(it.qty, 10) || 0) > 0);
         },
+        selectedManualCount() {
+          return this.manualItems.filter(it => it.selected).length;
+        },
+        allManualSelected() {
+          return this.manualItems.length > 0 && this.selectedManualCount === this.manualItems.length;
+        },
         totalManualStickers() {
           return this.validManualItems.reduce((sum, it) => sum + (parseInt(it.qty, 10) || 0), 0);
         },
@@ -814,10 +841,10 @@
           return Math.ceil((this.totalManualStickers + sepCount) / cols);
         },
         pendingJobs() {
-          return this.queueJobs.filter(j => j.status === 'MENUNGGU');
+          return this.queueJobs.filter(j => this.isJobPending(j));
         },
         completedJobs() {
-          return this.queueJobs.filter(j => j.status !== 'MENUNGGU');
+          return this.queueJobs.filter(j => !this.isJobPending(j));
         },
         displayedJobs() {
           return this.queueTab === 'MENUNGGU' ? this.pendingJobs : this.completedJobs;
@@ -874,17 +901,40 @@
         this.detectPrinters(false);
         this.fetchQueueAndConfig(false);
         this.startPolling();
+        document.addEventListener('visibilitychange', this.onVisibilityChange);
       },
       beforeUnmount() {
         if (this.pollTimer) clearInterval(this.pollTimer);
+        document.removeEventListener('visibilitychange', this.onVisibilityChange);
       },
       methods: {
+        isJobPending(job) {
+          return String((job && job.status) || 'MENUNGGU').trim().toUpperCase() === 'MENUNGGU';
+        },
+        onVisibilityChange() {
+          if (!document.hidden) {
+            this.fetchQueueAndConfig(false);
+          }
+        },
         showToast(message, type = 'info') {
           if (this.toast.timer) clearTimeout(this.toast.timer);
           this.toast.message = message;
           this.toast.type = type;
           this.toast.show = true;
-          this.toast.timer = setTimeout(() => { this.toast.show = false; }, 3200);
+          this.toast.timer = setTimeout(() => { this.toast.show = false; }, 3500);
+        },
+        async fetchGasJson(url, options = {}, retries = 2) {
+          const opts = Object.assign({ redirect: 'follow', cache: 'no-store' }, options);
+          for (let attempt = 1; attempt <= retries; attempt++) {
+            try {
+              const res = await fetch(url, opts);
+              const text = await res.text();
+              return JSON.parse(text);
+            } catch (err) {
+              if (attempt === retries) throw err;
+              await new Promise(r => setTimeout(r, 700 * attempt));
+            }
+          }
         },
         loadPortalLinks() {
           try {
@@ -919,23 +969,20 @@
           this.isSavingSettings = true;
           try {
             localStorage.setItem(BARCODE_SETTINGS_LOCAL_KEY, JSON.stringify(this.settings));
-            const res = await fetch(this.gasUrl, {
+            const data = await this.fetchGasJson(this.gasUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'text/plain;charset=utf-8' },
               body: JSON.stringify({
                 barcode_action: 'save_settings',
                 settings: this.settings
               })
-            });
-            const data = await res.json();
-            if (data.status === 'success') {
-              if (data.barcode_settings) {
-                this.settings = Object.assign(getFactorySettings(), data.barcode_settings);
-                localStorage.setItem(BARCODE_SETTINGS_LOCAL_KEY, JSON.stringify(this.settings));
-              }
+            }, 2);
+            if (data && data.status === 'success' && data.barcode_settings) {
+              this.settings = Object.assign(getFactorySettings(), data.barcode_settings);
+              localStorage.setItem(BARCODE_SETTINGS_LOCAL_KEY, JSON.stringify(this.settings));
               this.showToast('Setting default barcode tersimpan untuk semua PC.', 'success');
             } else {
-              this.showToast(data.message || 'Gagal menyimpan setting ke server.', 'error');
+              this.showToast((data && data.message) || 'GAS belum di-deploy versi baru.', 'error');
             }
           } catch (err) {
             this.showToast('Setting tersimpan lokal, tetapi gagal sinkron ke server.', 'warning');
@@ -944,12 +991,17 @@
           }
         },
         async fetchQueueAndConfig(manualTrigger = false) {
-          if (this.isLoadingQueue) return;
-          this.isLoadingQueue = true;
+          if (manualTrigger) {
+            if (this.isManualRefreshing) return;
+            this.isManualRefreshing = true;
+          } else {
+            if (this.isBackgroundSyncing || this.isManualRefreshing) return;
+            this.isBackgroundSyncing = true;
+          }
           try {
-            const res = await fetch(this.gasUrl + '?action=barcode_queue&_t=' + Date.now());
-            const data = await res.json();
-            if (data.status === 'success') {
+            const data = await this.fetchGasJson(this.gasUrl + '?action=barcode_queue&_t=' + Date.now(), { method: 'GET' }, manualTrigger ? 2 : 1);
+            if (data && data.status === 'success') {
+              this.queueSyncError = '';
               if (data.barcode_settings && (!this.showSettings || manualTrigger)) {
                 const remoteTs = Number(data.barcode_settings.updatedAt) || 0;
                 const localTs = Number(this.settings.updatedAt) || 0;
@@ -967,22 +1019,31 @@
               if (manualTrigger) {
                 this.showToast('Antrean diperbarui.', 'success');
               }
+            } else {
+              const msg = (data && data.message) ? data.message : 'Respons server tidak valid.';
+              this.queueSyncError = 'Server GAS: ' + msg + ' (Pastikan GAS sudah Deploy -> Kelola deployment -> Edit -> Versi baru)';
+              if (manualTrigger) {
+                this.showToast(this.queueSyncError, 'error');
+              }
             }
           } catch (err) {
+            this.queueSyncError = 'Gagal terhubung ke server antrean GAS.';
             if (manualTrigger) {
               this.showToast('Gagal mengambil antrean dari server.', 'error');
             }
           } finally {
-            this.isLoadingQueue = false;
+            if (manualTrigger) {
+              this.isManualRefreshing = false;
+            } else {
+              this.isBackgroundSyncing = false;
+            }
           }
         },
         startPolling() {
           if (this.pollTimer) clearInterval(this.pollTimer);
           this.pollTimer = setInterval(() => {
-            if (!document.hidden) {
-              this.fetchQueueAndConfig(false);
-            }
-          }, 4500);
+            this.fetchQueueAndConfig(false);
+          }, 5000);
         },
         toggleAutoPrint() {
           this.autoPrintEnabled = !this.autoPrintEnabled;
@@ -990,7 +1051,7 @@
             if (this.printerStatus !== 'connected') {
               this.showToast('Auto-Print aktif. Pastikan Zebra Browser Print terhubung.', 'warning');
             } else {
-              this.showToast('Auto-Print aktif. Antrean Checker akan dicetak otomatis sesuai urutan FIFO.', 'success');
+              this.showToast('Auto-Print aktif. Antrean Checker dicetak otomatis sesuai urutan FIFO.', 'success');
             }
             this.enqueueAutoPrintJobs();
           } else {
@@ -1049,7 +1110,8 @@
               uid: this.uidCounter++,
               kode: kode,
               nama: nama,
-              qty: qty
+              qty: qty,
+              selected: false
             });
             added++;
           }
@@ -1061,14 +1123,29 @@
           }
         },
         addEmptyRow() {
-          this.manualItems.push({ uid: this.uidCounter++, kode: '', nama: '', qty: 1 });
+          this.manualItems.push({ uid: this.uidCounter++, kode: '', nama: '', qty: 1, selected: false });
         },
         removeManualItem(idx) {
           this.manualItems.splice(idx, 1);
         },
+        toggleSelectAllManual(checked) {
+          this.manualItems.forEach(it => { it.selected = !!checked; });
+        },
+        deleteSelectedManualItems() {
+          const count = this.selectedManualCount;
+          if (count === 0) return;
+          this.manualItems = this.manualItems.filter(it => !it.selected);
+          if (this.manualItems.length === 0) {
+            this.linkedJobIds = [];
+          }
+          this.showToast(count + ' baris terpilih dihapus.', 'info');
+        },
         clearManualItems() {
+          if (this.manualItems.length === 0) return;
+          const total = this.manualItems.length;
           this.manualItems = [];
           this.linkedJobIds = [];
+          this.showToast(total + ' baris dibersihkan.', 'info');
         },
         sumJobStickers(job) {
           return (job.items || []).reduce((s, it) => s + (parseInt(it.qty, 10) || 0), 0);
@@ -1079,23 +1156,23 @@
               uid: this.uidCounter++,
               kode: it.kode,
               nama: it.nama,
-              qty: parseInt(it.qty, 10) || 1
+              qty: parseInt(it.qty, 10) || 1,
+              selected: false
             });
           });
-          if (job.status === 'MENUNGGU' && !this.linkedJobIds.includes(job.job_id)) {
+          if (this.isJobPending(job) && !this.linkedJobIds.includes(job.job_id)) {
             this.linkedJobIds.push(job.job_id);
           }
           this.showToast('Antrean ' + job.cabang + ' ditarik ke daftar cetak.', 'info');
         },
         async deleteQueueJob(jobId) {
           try {
-            const res = await fetch(this.gasUrl, {
+            const data = await this.fetchGasJson(this.gasUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'text/plain;charset=utf-8' },
               body: JSON.stringify({ barcode_action: 'delete_job', job_id: jobId })
-            });
-            const data = await res.json();
-            if (data.status === 'success' && Array.isArray(data.queue_jobs)) {
+            }, 2);
+            if (data && data.status === 'success' && Array.isArray(data.queue_jobs)) {
               this.queueJobs = data.queue_jobs;
               this.queuedAutoJobIds.delete(jobId);
               this.showToast('Antrean dihapus.', 'success');
@@ -1107,13 +1184,12 @@
         async markJobsDoneOnServer(jobIds) {
           if (!jobIds || jobIds.length === 0) return;
           try {
-            const res = await fetch(this.gasUrl, {
+            const data = await this.fetchGasJson(this.gasUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'text/plain;charset=utf-8' },
               body: JSON.stringify({ barcode_action: 'mark_done', job_ids: jobIds })
-            });
-            const data = await res.json();
-            if (data.status === 'success' && Array.isArray(data.queue_jobs)) {
+            }, 2);
+            if (data && data.status === 'success' && Array.isArray(data.queue_jobs)) {
               this.queueJobs = data.queue_jobs;
             }
           } catch (e) {}
@@ -1243,7 +1319,7 @@
           this.selectedPrinterUid = '';
           this.printerStatus = 'offline';
           if (showNotify) {
-            this.showToast('Zebra Browser Print tidak terdeteksi di PC ini. Gunakan tombol Download ZPL atau aktifkan Zebra Browser Print.', 'warning');
+            this.showToast('Zebra Browser Print tidak terdeteksi. Pastikan aplikasi berjalan dan sertifikat https://localhost:9101 sudah disetujui.', 'warning');
           }
           return false;
         },
@@ -1254,11 +1330,12 @@
               throw new Error('Printer Zebra tidak terdeteksi.');
             }
           }
+          const plainDevice = JSON.parse(JSON.stringify(this.selectedPrinterObj));
           const res = await fetch(this.printerBaseUrl + '/write', {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({
-              device: this.selectedPrinterObj,
+              device: plainDevice,
               data: zplData
             })
           });
@@ -1320,7 +1397,7 @@
           this.pushToPrintDispatcher({
             label: job.cabang + ' (' + job.pic + ')',
             items: itemsCopy,
-            jobIdsToMarkDone: job.status === 'MENUNGGU' ? [job.job_id] : []
+            jobIdsToMarkDone: this.isJobPending(job) ? [job.job_id] : []
           });
         },
         printAllPendingJobs() {
