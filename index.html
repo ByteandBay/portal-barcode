@@ -687,12 +687,12 @@
 
     <!-- Bottom Sheet: Navigasi Antar Portal Vapeboss -->
     <div v-if="portalMenuOpen" class="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4" @click.self="portalMenuOpen = false">
-      <div class="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl p-5 shadow-2xl border border-slate-200">
+      <div class="bg-white w-full sm:max-w-xl rounded-t-3xl sm:rounded-2xl p-5 shadow-2xl border border-slate-200">
         <div class="flex items-center justify-between mb-4">
           <h3 class="text-sm font-extrabold text-slate-900">Navigasi Antar Portal Vapeboss</h3>
           <button @click="portalMenuOpen = false" class="text-xs font-extrabold text-slate-400 hover:text-slate-700 px-2 py-1">X</button>
         </div>
-        <div class="space-y-2">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           <a :href="portalLinks.homeUrl" class="flex items-center justify-between p-3 rounded-xl border border-slate-200 hover:border-blue-400 hover:bg-blue-50/40 transition-all">
             <div>
               <div class="text-xs font-extrabold text-slate-900">Portal Utama (A)</div>
