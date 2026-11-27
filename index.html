@@ -373,20 +373,41 @@
                         </div>
                       </template>
                       <template v-else>
-                        <!-- QR Box -->
-                        <div class="absolute bg-slate-900/90 flex items-center justify-center text-[7px] font-mono text-white font-bold" :style="getQrStyle()">
-                          QR
+                        <!-- QR Box (Calibrated ZPL ^BQN Quiet Zone + Finder Pattern) -->
+                        <div class="absolute" :style="getQrStyle()">
+                          <svg viewBox="0 0 21 21" class="w-full h-full block" shape-rendering="crispEdges">
+                            <rect x="0" y="0" width="7" height="7" fill="#0f172a"/>
+                            <rect x="1" y="1" width="5" height="5" fill="#ffffff"/>
+                            <rect x="2" y="2" width="3" height="3" fill="#0f172a"/>
+                            <rect x="14" y="0" width="7" height="7" fill="#0f172a"/>
+                            <rect x="15" y="1" width="5" height="5" fill="#ffffff"/>
+                            <rect x="16" y="2" width="3" height="3" fill="#0f172a"/>
+                            <rect x="0" y="14" width="7" height="7" fill="#0f172a"/>
+                            <rect x="1" y="15" width="5" height="5" fill="#ffffff"/>
+                            <rect x="2" y="16" width="3" height="3" fill="#0f172a"/>
+                            <rect x="8" y="2" width="2" height="2" fill="#0f172a"/>
+                            <rect x="11" y="4" width="2" height="3" fill="#0f172a"/>
+                            <rect x="8" y="8" width="3" height="2" fill="#0f172a"/>
+                            <rect x="12" y="9" width="3" height="2" fill="#0f172a"/>
+                            <rect x="16" y="9" width="3" height="2" fill="#0f172a"/>
+                            <rect x="9" y="12" width="2" height="3" fill="#0f172a"/>
+                            <rect x="13" y="13" width="3" height="2" fill="#0f172a"/>
+                            <rect x="17" y="13" width="3" height="3" fill="#0f172a"/>
+                            <rect x="8" y="17" width="3" height="3" fill="#0f172a"/>
+                            <rect x="12" y="17" width="2" height="3" fill="#0f172a"/>
+                            <rect x="16" y="18" width="4" height="2" fill="#0f172a"/>
+                          </svg>
                         </div>
                         <!-- SKU -->
-                        <div class="absolute font-mono font-bold text-slate-900 whitespace-nowrap leading-none" :style="getSkuStyle()">
+                        <div class="absolute text-slate-900 whitespace-nowrap leading-none" :style="getSkuStyle()">
                           {{ slot.kode }}
                         </div>
                         <!-- MG / Ohm -->
-                        <div v-if="slot.topRight" class="absolute font-mono font-extrabold text-slate-900 whitespace-nowrap leading-none" :style="getMgStyle()">
+                        <div v-if="slot.topRight" class="absolute text-slate-900 whitespace-nowrap leading-none" :style="getMgStyle()">
                           {{ slot.topRight }}
                         </div>
                         <!-- Nama Barang -->
-                        <div class="absolute font-sans font-bold text-slate-900 break-words leading-tight overflow-hidden" :style="getNameStyle(slot.nama)">
+                        <div class="absolute text-slate-900 break-words overflow-hidden" :style="getNameStyle(slot.nama)">
                           {{ slot.nama }}
                         </div>
                       </template>
@@ -888,7 +909,7 @@
           return Math.max(lastX + this.previewLabelWidthDots + 10, this.previewLabelWidthDots * cols);
         },
         previewScale() {
-          return Math.min(0.55, 420 / Math.max(1, this.previewStripWidthDots));
+          return Math.min(0.52, 400 / Math.max(1, this.previewStripWidthDots));
         },
         previewStripStyle() {
           return {
@@ -1494,44 +1515,84 @@
             height: Math.round(this.previewLabelHeightDots * this.previewScale) + 'px'
           };
         },
+        getZplScaleX(fontHeight, fontWidth) {
+          const h = Math.max(1, Number(fontHeight) || 15);
+          const w = Math.max(1, Number(fontWidth) || 10);
+          return Math.max(0.3, Math.min(2.0, 0.81 * (w / h)));
+        },
         getQrStyle() {
-          const qrDots = (Number(this.settings.magQr) || 3) * 21;
+          const mag = Math.max(1, Number(this.settings.magQr) || 3);
+          const qrDots = mag * 21;
+          const quietZoneDots = 10;
           return {
-            left: Math.round((Number(this.settings.xQr) || 0) * this.previewScale) + 'px',
-            top: Math.round((Number(this.settings.yQr) || 0) * this.previewScale) + 'px',
-            width: Math.max(14, Math.round(qrDots * this.previewScale)) + 'px',
-            height: Math.max(14, Math.round(qrDots * this.previewScale)) + 'px'
+            left: ((Number(this.settings.xQr) || 0) + quietZoneDots) * this.previewScale + 'px',
+            top: ((Number(this.settings.yQr) || 0) + quietZoneDots) * this.previewScale + 'px',
+            width: Math.max(12, qrDots * this.previewScale) + 'px',
+            height: Math.max(12, qrDots * this.previewScale) + 'px'
           };
         },
         getSkuStyle() {
+          const h = Math.max(1, Number(this.settings.fontHeightSku) || 15);
+          const w = Math.max(1, Number(this.settings.fontWidthSku) || 11);
+          const sx = this.getZplScaleX(h, w);
           return {
-            left: Math.round((Number(this.settings.xSku) || 0) * this.previewScale) + 'px',
-            top: Math.round((Number(this.settings.ySku) || 0) * this.previewScale) + 'px',
-            fontSize: Math.max(6, Math.round((Number(this.settings.fontHeightSku) || 15) * this.previewScale)) + 'px'
+            left: (Number(this.settings.xSku) || 0) * this.previewScale + 'px',
+            top: (Number(this.settings.ySku) || 0) * this.previewScale + 'px',
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontWeight: '700',
+            fontSize: (h * this.previewScale) + 'px',
+            transform: 'scaleX(' + sx.toFixed(3) + ')',
+            transformOrigin: 'top left'
           };
         },
         getMgStyle() {
+          const h = Math.max(1, Number(this.settings.fontHeightMg) || 16);
+          const w = Math.max(1, Number(this.settings.fontWidthMg) || 14);
+          const sx = this.getZplScaleX(h, w);
           return {
-            left: Math.round((Number(this.settings.xMg) || 0) * this.previewScale) + 'px',
-            top: Math.round((Number(this.settings.yMg) || 0) * this.previewScale) + 'px',
-            fontSize: Math.max(6, Math.round((Number(this.settings.fontHeightMg) || 16) * this.previewScale)) + 'px'
+            left: (Number(this.settings.xMg) || 0) * this.previewScale + 'px',
+            top: (Number(this.settings.yMg) || 0) * this.previewScale + 'px',
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontWeight: '800',
+            fontSize: (h * this.previewScale) + 'px',
+            transform: 'scaleX(' + sx.toFixed(3) + ')',
+            transformOrigin: 'top left'
           };
         },
         getNameStyle(nama) {
           const yDyn = this.calcDynamicNameY(nama);
+          const h = Math.max(1, Number(this.settings.fontHeightName) || 15);
+          const w = Math.max(1, Number(this.settings.fontWidthName) || 10);
+          const spacing = Number(this.settings.visualLineSpacing) || 0;
+          const maxLines = Math.max(1, Number(this.settings.maxNameLines) || 5);
+          const sx = this.getZplScaleX(h, w);
+          const blockPx = (Number(this.settings.nameBlockWidth) || 160) * this.previewScale;
+          const linePx = Math.max(1, (h + spacing) * this.previewScale);
           return {
-            left: Math.round((Number(this.settings.xName) || 0) * this.previewScale) + 'px',
-            top: Math.max(0, Math.round(yDyn * this.previewScale)) + 'px',
-            width: Math.round((Number(this.settings.nameBlockWidth) || 160) * this.previewScale) + 'px',
-            fontSize: Math.max(6, Math.round((Number(this.settings.fontHeightName) || 20) * this.previewScale * 0.85)) + 'px',
-            lineHeight: '1.05'
+            left: (Number(this.settings.xName) || 0) * this.previewScale + 'px',
+            top: Math.max(0, yDyn * this.previewScale) + 'px',
+            width: (blockPx / sx) + 'px',
+            maxHeight: (linePx * maxLines) + 'px',
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontWeight: '700',
+            fontSize: (h * this.previewScale) + 'px',
+            lineHeight: linePx + 'px',
+            transform: 'scaleX(' + sx.toFixed(3) + ')',
+            transformOrigin: 'top left'
           };
         },
         getSepStyle() {
+          const h = Math.max(1, Number(this.settings.fontHeightSep) || 60);
+          const w = Math.max(1, Number(this.settings.fontWidthSep) || 35);
+          const sx = this.getZplScaleX(h, w);
           return {
-            left: Math.round((Number(this.settings.xSep) || 0) * this.previewScale) + 'px',
-            top: Math.round((Number(this.settings.ySep) || 0) * this.previewScale) + 'px',
-            fontSize: Math.max(10, Math.round((Number(this.settings.fontHeightSep) || 60) * this.previewScale * 0.8)) + 'px'
+            left: (Number(this.settings.xSep) || 0) * this.previewScale + 'px',
+            top: (Number(this.settings.ySep) || 0) * this.previewScale + 'px',
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontWeight: '700',
+            fontSize: (h * this.previewScale) + 'px',
+            transform: 'scaleX(' + sx.toFixed(3) + ')',
+            transformOrigin: 'top left'
           };
         }
       }
