@@ -613,8 +613,9 @@
               :class="isJobPending(job) ? 'border-slate-200 bg-white hover:border-blue-300' : 'border-slate-200 bg-slate-50/70 opacity-80'">
               <div class="flex items-start justify-between gap-2 mb-2">
                 <div>
-                  <div class="flex items-center gap-1.5">
+                  <div class="flex items-center gap-1.5 flex-wrap">
                     <span v-if="isJobPending(job)" class="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 text-[10px] font-extrabold">#{{ jIdx + 1 }}</span>
+                    <span v-if="isRemoteJob(job)" class="px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 text-[10px] font-extrabold">REMOTE</span>
                     <span class="text-xs font-extrabold text-slate-900">{{ job.cabang }}</span>
                   </div>
                   <p class="text-[11px] font-semibold text-slate-500 mt-0.5">
@@ -664,6 +665,145 @@
           </div>
         </div>
 
+      </section>
+
+      <!-- PANEL TERPISAH: KIRIM CETAK REMOTE (AKSES SANDI UNTUK TIM LAIN / N5 DST.) -->
+      <section class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <!-- Kondisi Terkunci (Compact) -->
+        <div v-if="!remoteUnlocked" class="px-4 py-3.5 bg-slate-50/80 flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center gap-2.5">
+            <span class="px-2 py-0.5 rounded-md bg-purple-100 text-purple-800 text-[10px] font-extrabold uppercase">Remote</span>
+            <h2 class="text-sm font-extrabold text-slate-900">Kirim Cetak Barcode (Tim Lain)</h2>
+          </div>
+          <form @submit.prevent="unlockRemotePanel" class="flex items-center gap-2 w-full sm:w-auto">
+            <input type="password" v-model="remotePasswordInput" placeholder="Masukkan sandi akses..."
+              class="flex-1 sm:w-52 px-3 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-100 outline-none">
+            <button type="submit" class="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold shrink-0">
+              Buka
+            </button>
+          </form>
+        </div>
+
+        <!-- Kondisi Terbuka (Susunan Identik dengan Panel Existing) -->
+        <div v-else class="flex flex-col">
+          <div class="px-4 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 bg-purple-50/50">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="px-2 py-0.5 rounded-md bg-purple-700 text-white text-[10px] font-extrabold uppercase">Remote</span>
+              <h2 class="text-sm font-extrabold text-slate-900">Kirim Cetak Barcode (Tim Lain)</h2>
+              <input type="text" v-model.trim="remoteSenderName" @input="saveRemoteSenderName" placeholder="Nama Penginput"
+                class="px-2.5 py-1 text-xs font-bold bg-white border border-purple-200 rounded-lg focus:border-purple-500 outline-none w-36 sm:w-44">
+            </div>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <button @click="addRemoteEmptyRow" class="px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold">
+                + Baris
+              </button>
+              <button v-if="selectedRemoteCount > 0" @click="deleteSelectedRemoteItems"
+                class="px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-xs">
+                Hapus Terpilih ({{ selectedRemoteCount }})
+              </button>
+              <button @click="clearRemoteItems" :disabled="remoteItems.length === 0"
+                class="px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 text-slate-600 text-xs font-bold disabled:opacity-40">
+                Hapus Semua
+              </button>
+              <button @click="lockRemotePanel" class="px-2.5 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold">
+                Kunci
+              </button>
+            </div>
+          </div>
+
+          <!-- Paste Area -->
+          <div class="p-3.5 border-b border-slate-200 bg-slate-50/40">
+            <div class="flex gap-2">
+              <textarea v-model="remotePasteInput" @paste="onPasteRemoteExcel" rows="2"
+                placeholder="Paste dari Excel / Sheets: Kode Barang [Tab] Nama Barang [Tab] Qty"
+                class="flex-1 px-3 py-2 text-xs font-medium bg-white border border-slate-300 rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-100 outline-none resize-none"></textarea>
+              <button @click="parseRemotePasteInput" :disabled="!remotePasteInput.trim()"
+                class="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shrink-0 disabled:opacity-40">
+                Muat
+              </button>
+            </div>
+          </div>
+
+          <!-- Editable Table -->
+          <div class="overflow-x-auto max-h-[380px] overflow-y-auto custom-scroll">
+            <table class="w-full text-left border-collapse">
+              <thead class="sticky top-0 bg-slate-100 text-[11px] font-extrabold text-slate-600 uppercase border-b border-slate-200 z-10">
+                <tr>
+                  <th class="py-2 px-2.5 w-9 text-center">
+                    <input type="checkbox" :checked="allRemoteSelected" :disabled="remoteItems.length === 0" @change="toggleSelectAllRemote($event.target.checked)"
+                      title="Pilih Semua" class="rounded border-slate-300 text-purple-600 cursor-pointer">
+                  </th>
+                  <th class="py-2 px-2 w-9 text-center">No</th>
+                  <th class="py-2 px-2 w-32">Kode</th>
+                  <th class="py-2 px-2">Nama Barang</th>
+                  <th class="py-2 px-2 w-16 text-center">Info</th>
+                  <th class="py-2 px-2 w-20 text-center">Qty</th>
+                  <th class="py-2 px-2 w-9 text-center"></th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100 text-xs">
+                <tr v-if="remoteItems.length === 0">
+                  <td colspan="7" class="py-8 text-center text-slate-400 font-semibold">
+                    Belum ada daftar barang. Paste data dari Excel/Sheets atau tambah baris manual.
+                  </td>
+                </tr>
+                <tr v-for="(item, idx) in remoteItems" :key="item.uid"
+                  class="hover:bg-slate-50/80 transition-colors"
+                  :class="item.selected ? 'bg-rose-50/50' : ''">
+                  <td class="py-1.5 px-2.5 text-center">
+                    <input type="checkbox" v-model="item.selected" class="rounded border-slate-300 text-purple-600 cursor-pointer">
+                  </td>
+                  <td class="py-1.5 px-2 text-center font-bold text-slate-400">{{ idx + 1 }}</td>
+                  <td class="py-1.5 px-2">
+                    <input type="text" v-model.trim="item.kode" placeholder="SKU"
+                      class="w-full px-2 py-1 text-xs font-mono font-bold bg-white border border-slate-200 rounded-lg focus:border-purple-500 outline-none">
+                  </td>
+                  <td class="py-1.5 px-2">
+                    <input type="text" v-model="item.nama" placeholder="Nama Barang"
+                      class="w-full px-2 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg focus:border-purple-500 outline-none">
+                  </td>
+                  <td class="py-1.5 px-2 text-center">
+                    <span class="inline-block px-1.5 py-0.5 rounded bg-slate-100 text-[10px] font-extrabold text-slate-700">
+                      {{ extractTopRight(item.nama) || '-' }}
+                    </span>
+                  </td>
+                  <td class="py-1.5 px-2">
+                    <input type="number" min="1" v-model.number="item.qty"
+                      class="w-full px-2 py-1 text-xs font-extrabold text-center bg-white border border-slate-200 rounded-lg focus:border-purple-500 outline-none">
+                  </td>
+                  <td class="py-1.5 px-2 text-center">
+                    <button @click="removeRemoteItem(idx)" class="text-slate-400 hover:text-rose-600 font-extrabold text-xs px-1.5 py-1">
+                      X
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Action Footer -->
+          <div class="p-3.5 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-4 text-xs">
+              <div>
+                <span class="text-slate-500 font-semibold">SKU:</span>
+                <span class="ml-1 font-extrabold text-slate-900">{{ validRemoteItems.length }}</span>
+              </div>
+              <div>
+                <span class="text-slate-500 font-semibold">Stiker:</span>
+                <span class="ml-1 font-extrabold text-purple-700">{{ totalRemoteStickers }}</span>
+              </div>
+              <div>
+                <span class="text-slate-500 font-semibold">Baris:</span>
+                <span class="ml-1 font-extrabold text-slate-900">{{ estimatedRemoteRows }}</span>
+              </div>
+            </div>
+
+            <button @click="sendRemotePrintQueue" :disabled="validRemoteItems.length === 0 || isSendingRemoteQueue" type="button"
+              class="px-4 py-2 rounded-xl bg-purple-700 hover:bg-purple-800 text-white text-xs font-extrabold shadow-sm disabled:opacity-40">
+              {{ isSendingRemoteQueue ? 'Mengirim ke Printer...' : 'Kirim & Cetak via PC Printer' }}
+            </button>
+          </div>
+        </div>
       </section>
     </main>
 
@@ -770,6 +910,9 @@
     const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbw-Hlly2gks4HjfRIdD0xL3l7Uhc7I-R2dRaGWYgFMY7qkhRWOYLcSQuEuqHCMLnnsL/exec';
     const PORTAL_LINKS_KEY = 'vapeboss_portal_links_v2';
     const BARCODE_SETTINGS_LOCAL_KEY = 'vapeboss_barcode_settings_v1';
+    const REMOTE_SESSION_UNLOCK_KEY = 'vapeboss_barcode_remote_unlocked_v1';
+    const REMOTE_SESSION_SENDER_KEY = 'vapeboss_barcode_remote_sender_v1';
+    const REMOTE_ACCESS_PASSWORD = 'WarehouseVB';
 
     function getFactorySettings() {
       return {
@@ -863,10 +1006,35 @@
           isCheckingPrinter: false,
           wakeLockSentinel: null,
 
+          // Panel Remote Tim Lain (Terkunci Sandi per Sesi Tab)
+          remoteUnlocked: false,
+          remotePasswordInput: '',
+          remoteSenderName: '',
+          remotePasteInput: '',
+          remoteItems: [],
+          isSendingRemoteQueue: false,
+
           toast: { show: false, message: '', type: 'info', timer: null }
         };
       },
       computed: {
+        validRemoteItems() {
+          return this.remoteItems.filter(it => String(it.kode !== undefined && it.kode !== null ? it.kode : '').trim() !== '' && (parseInt(it.qty, 10) || 0) > 0);
+        },
+        selectedRemoteCount() {
+          return this.remoteItems.filter(it => it.selected).length;
+        },
+        allRemoteSelected() {
+          return this.remoteItems.length > 0 && this.selectedRemoteCount === this.remoteItems.length;
+        },
+        totalRemoteStickers() {
+          return this.validRemoteItems.reduce((sum, it) => sum + (parseInt(it.qty, 10) || 0), 0);
+        },
+        estimatedRemoteRows() {
+          const cols = Math.max(1, parseInt(this.settings.columns, 10) || 3);
+          const sepCount = (this.settings.enableSeparator && this.validRemoteItems.length > 0) ? this.validRemoteItems.length : 0;
+          return Math.ceil((this.totalRemoteStickers + sepCount) / cols);
+        },
         validManualItems() {
           return this.manualItems.filter(it => String(it.kode || '').trim() !== '' && (parseInt(it.qty, 10) || 0) > 0);
         },
@@ -942,6 +1110,7 @@
       mounted() {
         this.loadPortalLinks();
         this.loadLocalSettings();
+        this.restoreRemoteSession();
         this.detectPrinters(false, false);
         this.fetchQueueAndConfig(false);
         this.startPolling();
@@ -960,6 +1129,146 @@
       methods: {
         isJobPending(job) {
           return String((job && job.status) || 'MENUNGGU').trim().toUpperCase() === 'MENUNGGU';
+        },
+        isRemoteJob(job) {
+          const noIt = String((job && job.no_it) || '').trim().toLowerCase();
+          const cab = String((job && job.cabang) || '').trim().toUpperCase();
+          return noIt === 'portal barcode' || cab.startsWith('REMOTE');
+        },
+        restoreRemoteSession() {
+          try {
+            if (sessionStorage.getItem(REMOTE_SESSION_UNLOCK_KEY) === '1') {
+              this.remoteUnlocked = true;
+            }
+            const savedSender = sessionStorage.getItem(REMOTE_SESSION_SENDER_KEY);
+            if (savedSender) this.remoteSenderName = savedSender;
+          } catch (e) {}
+        },
+        saveRemoteSenderName() {
+          try {
+            sessionStorage.setItem(REMOTE_SESSION_SENDER_KEY, this.remoteSenderName || '');
+          } catch (e) {}
+        },
+        unlockRemotePanel() {
+          if (String(this.remotePasswordInput || '') === REMOTE_ACCESS_PASSWORD) {
+            this.remoteUnlocked = true;
+            this.remotePasswordInput = '';
+            try { sessionStorage.setItem(REMOTE_SESSION_UNLOCK_KEY, '1'); } catch (e) {}
+            this.showToast('Akses cetak remote terbuka untuk sesi ini.', 'success');
+          } else {
+            this.showToast('Sandi salah.', 'error');
+          }
+        },
+        lockRemotePanel() {
+          this.remoteUnlocked = false;
+          this.remotePasswordInput = '';
+          try { sessionStorage.removeItem(REMOTE_SESSION_UNLOCK_KEY); } catch (e) {}
+          this.showToast('Panel cetak remote dikunci.', 'info');
+        },
+        onPasteRemoteExcel() {
+          setTimeout(() => {
+            if (this.remotePasteInput.trim()) {
+              this.parseRemotePasteInput();
+            }
+          }, 50);
+        },
+        parseRemotePasteInput() {
+          const lines = this.remotePasteInput.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+          let added = 0;
+          for (const line of lines) {
+            let parts = line.split('\t');
+            if (parts.length < 2) parts = line.split(';');
+            if (parts.length < 2) parts = line.split(',');
+            const kode = String(parts[0] !== undefined && parts[0] !== null ? parts[0] : '').trim();
+            if (!kode || kode.toLowerCase() === 'kode' || kode.toLowerCase() === 'kode barang') continue;
+            let nama = '';
+            let qty = 1;
+            if (parts.length === 2) {
+              const maybeQty = parseInt(String(parts[1]).trim(), 10);
+              if (!isNaN(maybeQty) && String(maybeQty) === String(parts[1]).trim()) {
+                qty = Math.max(1, maybeQty);
+              } else {
+                nama = String(parts[1] || '').trim();
+              }
+            } else {
+              nama = String(parts[1] || '').trim();
+              qty = Math.max(1, parseInt(String(parts[2] || '1').replace(/[^0-9]/g, ''), 10) || 1);
+            }
+            this.remoteItems.push({
+              uid: this.uidCounter++,
+              kode: kode,
+              nama: nama,
+              qty: qty,
+              selected: false
+            });
+            added++;
+          }
+          if (added > 0) {
+            this.remotePasteInput = '';
+            this.showToast(added + ' baris ditambahkan ke daftar kirim.', 'success');
+          } else {
+            this.showToast('Format tidak terbaca. Gunakan format: Kode [Tab] Nama [Tab] Qty.', 'warning');
+          }
+        },
+        addRemoteEmptyRow() {
+          this.remoteItems.push({ uid: this.uidCounter++, kode: '', nama: '', qty: 1, selected: false });
+        },
+        removeRemoteItem(idx) {
+          this.remoteItems.splice(idx, 1);
+        },
+        toggleSelectAllRemote(checked) {
+          this.remoteItems.forEach(it => { it.selected = !!checked; });
+        },
+        deleteSelectedRemoteItems() {
+          const count = this.selectedRemoteCount;
+          if (count === 0) return;
+          this.remoteItems = this.remoteItems.filter(it => !it.selected);
+          this.showToast(count + ' baris terpilih dihapus.', 'info');
+        },
+        clearRemoteItems() {
+          if (this.remoteItems.length === 0) return;
+          const total = this.remoteItems.length;
+          this.remoteItems = [];
+          this.showToast(total + ' baris dibersihkan.', 'info');
+        },
+        async sendRemotePrintQueue() {
+          if (this.isSendingRemoteQueue || this.validRemoteItems.length === 0) return;
+          this.isSendingRemoteQueue = true;
+          try {
+            const payloadItems = this.validRemoteItems.map(it => ({
+              kode: String(it.kode !== undefined && it.kode !== null ? it.kode : '').trim(),
+              nama: String(it.nama !== undefined && it.nama !== null ? it.nama : '').trim(),
+              qty: Math.max(1, parseInt(it.qty, 10) || 1)
+            }));
+            const senderLabel = String(this.remoteSenderName || '').trim() || 'Tim Umum';
+            const totalStiker = payloadItems.reduce((s, it) => s + it.qty, 0);
+            const data = await this.fetchGasJson(this.gasUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({
+                request_id: 'rem_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+                barcode_action: 'enqueue',
+                pic: senderLabel,
+                cabang: senderLabel,
+                no_it: 'Portal Barcode',
+                items: payloadItems
+              })
+            }, 3);
+
+            if (data && data.status === 'success' && data.job_id && Number(data.count) > 0) {
+              if (Array.isArray(data.queue_jobs)) {
+                this.queueJobs = data.queue_jobs;
+              }
+              this.remoteItems = [];
+              this.showToast('Terkirim ke PC Printer: ' + payloadItems.length + ' SKU (' + totalStiker + ' stiker).', 'success');
+            } else {
+              this.showToast((data && data.message) || 'Gagal mengirim antrean ke server.', 'error');
+            }
+          } catch (err) {
+            this.showToast('Gangguan jaringan saat mengirim antrean cetak.', 'error');
+          } finally {
+            this.isSendingRemoteQueue = false;
+          }
         },
         async requestWakeLock() {
           try {
