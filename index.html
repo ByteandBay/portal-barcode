@@ -675,13 +675,21 @@
             <span class="px-2 py-0.5 rounded-md bg-purple-100 text-purple-800 text-[10px] font-extrabold uppercase">Remote</span>
             <h2 class="text-sm font-extrabold text-slate-900">Kirim Cetak Barcode (Tim Lain)</h2>
           </div>
-          <form @submit.prevent="unlockRemotePanel" class="flex items-center gap-2 w-full sm:w-auto">
-            <input type="password" v-model="remotePasswordInput" placeholder="Masukkan sandi akses..."
-              class="flex-1 sm:w-52 px-3 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-100 outline-none">
-            <button type="submit" class="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold shrink-0">
+          <div class="flex items-center gap-2 w-full sm:w-auto">
+            <div class="relative flex-1 sm:w-56">
+              <input :type="showRemotePassword ? 'text' : 'password'" v-model="remotePasswordInput"
+                @keydown.enter.prevent="unlockRemotePanel" autocomplete="off" spellcheck="false"
+                placeholder="Masukkan sandi akses..."
+                class="w-full pl-3 pr-14 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-100 outline-none">
+              <button type="button" @click="showRemotePassword = !showRemotePassword"
+                class="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-extrabold text-slate-500 hover:text-slate-800 px-1">
+                {{ showRemotePassword ? 'Tutup' : 'Lihat' }}
+              </button>
+            </div>
+            <button type="button" @click="unlockRemotePanel" class="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold shrink-0">
               Buka
             </button>
-          </form>
+          </div>
         </div>
 
         <!-- Kondisi Terbuka (Susunan Identik dengan Panel Existing) -->
@@ -1009,6 +1017,7 @@
           // Panel Remote Tim Lain (Terkunci Sandi per Sesi Tab)
           remoteUnlocked: false,
           remotePasswordInput: '',
+          showRemotePassword: false,
           remoteSenderName: '',
           remotePasteInput: '',
           remoteItems: [],
@@ -1150,9 +1159,11 @@
           } catch (e) {}
         },
         unlockRemotePanel() {
-          if (String(this.remotePasswordInput || '') === REMOTE_ACCESS_PASSWORD) {
+          const entered = String(this.remotePasswordInput || '');
+          if (entered === REMOTE_ACCESS_PASSWORD) {
             this.remoteUnlocked = true;
             this.remotePasswordInput = '';
+            this.showRemotePassword = false;
             try { sessionStorage.setItem(REMOTE_SESSION_UNLOCK_KEY, '1'); } catch (e) {}
             this.showToast('Akses cetak remote terbuka untuk sesi ini.', 'success');
           } else {
